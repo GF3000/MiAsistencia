@@ -1,5 +1,6 @@
 import 'app_user.dart';
 import 'attendance.dart';
+import 'team_membership.dart';
 import 'team_session.dart';
 
 class PlayerRanking {
@@ -95,8 +96,8 @@ class TeamAttendanceTrend {
 }
 
 PlayerMotivationKpis buildPlayerMotivationKpis({
-  required AppUser currentPlayer,
-  required Iterable<AppUser> members,
+  required TeamRosterMember currentPlayer,
+  required Iterable<TeamRosterMember> members,
   required Iterable<TeamSession> completedSessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
   required DateTime referenceDate,
@@ -182,7 +183,7 @@ PlayerMotivationKpis buildPlayerMotivationKpis({
 }
 
 TeamAttendanceTrend buildTeamAttendanceTrend({
-  required Iterable<AppUser> members,
+  required Iterable<TeamRosterMember> members,
   required Iterable<TeamSession> completedSessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
   required DateTime referenceDate,
@@ -259,8 +260,8 @@ TeamAttendanceTrend buildTeamAttendanceTrend({
 }
 
 PlayerRanking? _buildRanking({
-  required AppUser currentPlayer,
-  required List<AppUser> players,
+  required TeamRosterMember currentPlayer,
+  required List<TeamRosterMember> players,
   required List<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
   required bool Function(AttendanceStatus status) qualifies,
@@ -373,7 +374,7 @@ class _RankingScore {
 }
 
 AttendanceStatus _resolvedStatus({
-  required AppUser player,
+  required TeamRosterMember player,
   required TeamSession session,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
 }) {
@@ -399,7 +400,7 @@ List<TeamSession> _sessionsInWindow(
 }
 
 _AttendancePercentage _playerAttendancePercentage({
-  required AppUser player,
+  required TeamRosterMember player,
   required Iterable<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
 }) {
@@ -424,7 +425,7 @@ _AttendancePercentage _playerAttendancePercentage({
 }
 
 int? _playerPunctualityPercentage({
-  required AppUser player,
+  required TeamRosterMember player,
   required Iterable<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
 }) {
@@ -458,7 +459,7 @@ class _AttendancePercentage {
 }
 
 _AttendanceStreaks _buildCurrentStreaks({
-  required AppUser player,
+  required TeamRosterMember player,
   required Iterable<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
 }) {

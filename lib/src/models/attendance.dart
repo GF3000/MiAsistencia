@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'app_user.dart';
+import 'team_membership.dart';
 import 'team_session.dart';
 
 enum AttendanceLabelPerspective { player, coach }
@@ -146,7 +147,7 @@ enum AttendanceStatus {
 }
 
 int countAttendingPlayers({
-  required Iterable<AppUser> members,
+  required Iterable<TeamRosterMember> members,
   required Map<String, AttendanceRecord> attendance,
   required DateTime sessionTime,
 }) {
@@ -164,15 +165,14 @@ int countAttendingPlayers({
 }
 
 AttendanceStatus resolveAttendanceStatus({
-  required AppUser user,
+  required TeamRosterMember user,
   required AttendanceRecord? explicitRecord,
   required DateTime sessionTime,
 }) {
   if (explicitRecord != null) {
     return explicitRecord.status;
   }
-  if (user.teamMembershipStartedAt != null &&
-      sessionTime.isBefore(user.teamMembershipStartedAt!)) {
+  if (!user.isActiveAt(sessionTime)) {
     return AttendanceStatus.notApplicable;
   }
   return user.attendancePresumptionAt(sessionTime) ==
@@ -196,7 +196,7 @@ class CoachAttendanceSummary {
 }
 
 CoachAttendanceSummary buildCoachAttendanceSummary({
-  required Iterable<AppUser> members,
+  required Iterable<TeamRosterMember> members,
   required Map<String, AttendanceRecord> attendance,
   required DateTime sessionTime,
 }) {
@@ -294,7 +294,7 @@ class AttendanceHistorySnapshot {
 }
 
 PlayerAttendanceStats buildPlayerAttendanceStats({
-  required AppUser player,
+  required TeamRosterMember player,
   required Iterable<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
 }) {
@@ -376,7 +376,7 @@ class AttendanceRecord {
   }
 
   factory AttendanceRecord.defaultFor({
-    required AppUser user,
+    required TeamRosterMember user,
     required DateTime sessionTime,
   }) {
     return AttendanceRecord(

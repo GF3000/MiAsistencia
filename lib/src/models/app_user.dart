@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'team_membership.dart';
+
 enum UserRole {
   admin,
   player;
@@ -42,7 +44,7 @@ class AttendancePresumptionChange {
   }
 }
 
-class AppUser {
+class AppUser implements TeamRosterMember {
   const AppUser({
     required this.id,
     required this.email,
@@ -55,13 +57,19 @@ class AppUser {
     this.managedByCoach = false,
     this.attendancePresumption = AttendancePresumption.attending,
     this.attendancePresumptionHistory = const [],
+    this.activeTeamId,
+    this.schemaVersion,
   });
 
+  @override
   final String id;
   final String email;
+  @override
   final String fullName;
+  @override
   final UserRole role;
   final String? teamId;
+  @override
   final bool active;
   final DateTime? teamJoinedAt;
   final DateTime? createdAt;
@@ -69,24 +77,37 @@ class AppUser {
   final AttendancePresumption attendancePresumption;
   final List<AttendancePresumptionChange> attendancePresumptionHistory;
 
+  /// Placeholder for the multi-team migration: once a user can belong to
+  /// several [TeamMembership] documents, this marks which one currently
+  /// drives their default routing/UI. Null keeps today's single-team
+  /// behavior (driven by [teamId]) unchanged.
+  final String? activeTeamId;
+
+  /// Placeholder for the multi-team migration so profile documents written
+  /// by a future backfill can be parsed defensively. Null means "legacy
+  /// single-team profile".
+  final int? schemaVersion;
+
   bool get isCoach => role.isCoach;
   bool get hasAccount => !managedByCoach;
   bool get hasTeam => teamId != null && teamId!.isNotEmpty;
   bool get canLeaveTeam => role == UserRole.player && hasAccount && hasTeam;
+  @override
   DateTime? get teamMembershipStartedAt => teamJoinedAt ?? createdAt;
 
+  @override
+  bool isActiveAt(DateTime instant) {
+    final startedAt = teamMembershipStartedAt;
+    return startedAt == null || !instant.isBefore(startedAt);
+  }
+
+  @override
   AttendancePresumption attendancePresumptionAt(DateTime sessionTime) {
-    var resolved = AttendancePresumption.attending;
-    final history = [
-      ...attendancePresumptionHistory,
-    ]..sort((left, right) => left.effectiveFrom.compareTo(right.effectiveFrom));
-    for (final change in history) {
-      if (change.effectiveFrom.isAfter(sessionTime)) {
-        break;
-      }
-      resolved = change.value;
-    }
-    return history.isEmpty ? attendancePresumption : resolved;
+    return resolveAttendancePresumptionAt(
+      base: attendancePresumption,
+      history: attendancePresumptionHistory,
+      sessionTime: sessionTime,
+    );
   }
 
   factory AppUser.fromSnapshot(
@@ -111,6 +132,8 @@ class AppUser {
               .whereType<Map<String, dynamic>>()
               .map(AttendancePresumptionChange.fromFirestore)
               .toList(),
+      activeTeamId: data['activeTeamId'] as String?,
+      schemaVersion: data['schemaVersion'] as int?,
     );
   }
 }
