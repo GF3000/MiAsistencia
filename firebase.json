@@ -1,0 +1,42 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "location": "eur3",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": [
+    {
+      "site": "miasistencia-bmcoras",
+      "public": "build/web",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    {
+      "site": "mi-asistencia-c8854",
+      "public": "build/web",
+      "redirects": [
+        {
+          "source": "/:path*",
+          "destination": "https://miasistencia-bmcoras.web.app/:path",
+          "type": 301
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "google": true
+    }
+  }
+}

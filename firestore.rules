@@ -1,0 +1,344 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userPath(userId) {
+      return /databases/$(database)/documents/users/$(userId);
+    }
+
+    function teamPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId);
+    }
+
+    function currentUserExists() {
+      return isAuthenticated() && exists(userPath(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function belongsToTeam(teamId) {
+      return currentUserExists() && currentUser().teamId == teamId;
+    }
+
+    function isTeamCoach(teamId) {
+      return belongsToTeam(teamId) && currentUser().role == 'admin';
+    }
+
+    function isTeamOwner(teamId, userId) {
+      return exists(teamPath(teamId))
+        && get(teamPath(teamId)).data.createdBy == userId;
+    }
+
+    function hasValidUserShape(data) {
+      return data.email is string
+        && data.fullName is string
+        && data.fullName.size() >= 2
+        && data.role in ['admin', 'player']
+        && (data.teamId == null || data.teamId is string)
+        && (
+          data.get('teamJoinedAt', null) == null
+          || data.get('teamJoinedAt', null) is timestamp
+        )
+        && data.active is bool
+        && data.get('managedByCoach', false) is bool
+        && data.get('attendanceDefaultStatus', 'attending')
+          in ['attending', 'absent']
+        && data.get('attendanceDefaultHistory', []) is list;
+    }
+
+    function hasValidAttendanceShape(data) {
+      return data.status in [
+          'attending',
+          'injured',
+          'court_only',
+          'gym_only',
+          'late',
+          'absent',
+          'late_unannounced',
+          'absent_unannounced',
+          'absent_late_notice'
+        ]
+        && (data.note == null
+          || (data.note is string && data.note.size() <= 180))
+        && data.updatedBy == request.auth.uid;
+    }
+
+    function isPlayerAttendanceStatus(status) {
+      return status in [
+        'attending',
+        'injured',
+        'court_only',
+        'gym_only',
+        'late',
+        'absent'
+      ];
+    }
+
+    match /teams/{teamId} {
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create: if isAuthenticated()
+        && request.resource.data.keys().hasOnly([
+          'name',
+          'joinCode',
+          'createdBy',
+          'createdAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.joinCode == teamId
+        && request.resource.data.joinCode.matches('^[A-HJ-KM-NP-Z2-9]{6}$')
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isTeamCoach(teamId)
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.joinCode == resource.data.joinCode;
+      allow delete: if isTeamCoach(teamId);
+    }
+
+    match /teamInvites/{teamId} {
+      function hasValidInvitationShape() {
+        return request.resource.data.keys().hasOnly(['name'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2;
+      }
+
+      allow get: if true;
+      allow list: if false;
+      allow create: if isAuthenticated()
+        && hasValidInvitationShape()
+        && existsAfter(teamPath(teamId))
+        && (
+          getAfter(teamPath(teamId)).data.createdBy == request.auth.uid
+          || isTeamCoach(teamId)
+        );
+      allow update: if hasValidInvitationShape() && isTeamCoach(teamId);
+      allow delete: if isTeamCoach(teamId);
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated()
+        && (request.auth.uid == userId
+          || (resource.data.teamId != null
+            && belongsToTeam(resource.data.teamId)));
+
+      allow create: if isAuthenticated()
+        && hasValidUserShape(request.resource.data)
+        && request.resource.data.role == 'player'
+        && request.resource.data.active == true
+        && request.resource.data.attendanceDefaultStatus == 'attending'
+        && request.resource.data.attendanceDefaultHistory.size() == 0
+        && (
+          (
+            request.auth.uid == userId
+            && request.resource.data.teamId == null
+            && request.resource.data.get('teamJoinedAt', null) == null
+            && request.resource.data.get('managedByCoach', false) == false
+          )
+          || (
+            request.auth.uid != userId
+            && request.resource.data.teamId is string
+            && request.resource.data.email == ''
+            && request.resource.data.get('managedByCoach', false) == true
+            && request.resource.data.teamJoinedAt == request.time
+            && isTeamCoach(request.resource.data.teamId)
+          )
+        );
+
+      allow update: if isAuthenticated()
+        && hasValidUserShape(request.resource.data)
+        && (
+          (
+            request.auth.uid == userId
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly([
+                'fullName',
+                'teamId',
+                'teamJoinedAt',
+                'role',
+                'attendanceDefaultStatus',
+                'attendanceDefaultHistory'
+              ])
+            && (
+              (
+                request.resource.data.teamId == resource.data.teamId
+                && request.resource.data.role == resource.data.role
+                && request.resource.data.get(
+                    'teamJoinedAt',
+                    null
+                  ) == resource.data.get('teamJoinedAt', null)
+                && request.resource.data.get(
+                    'attendanceDefaultStatus',
+                    'attending'
+                  ) == resource.data.get(
+                    'attendanceDefaultStatus',
+                    'attending'
+                  )
+                && request.resource.data.get(
+                    'attendanceDefaultHistory',
+                    []
+                  ) == resource.data.get('attendanceDefaultHistory', [])
+              )
+              || (
+                resource.data.teamId == null
+                && request.resource.data.teamId is string
+                && request.resource.data.teamJoinedAt == request.time
+                && existsAfter(teamPath(request.resource.data.teamId))
+                && request.resource.data.attendanceDefaultStatus == 'attending'
+                && request.resource.data.attendanceDefaultHistory.size() == 0
+                && (
+                  request.resource.data.role == 'player'
+                  || (
+                    request.resource.data.role == 'admin'
+                    && getAfter(
+                      teamPath(request.resource.data.teamId)
+                    ).data.createdBy == request.auth.uid
+                  )
+                )
+              )
+              || (
+                resource.data.teamId is string
+                && resource.data.role == 'player'
+                && request.resource.data.teamId == null
+                && request.resource.data.get('teamJoinedAt', null) == null
+                && request.resource.data.role == 'player'
+                && request.resource.data.attendanceDefaultStatus == 'attending'
+                && request.resource.data.attendanceDefaultHistory.size() == 0
+              )
+              || (
+                resource.data.teamId is string
+                && resource.data.role == 'player'
+                && request.resource.data.teamId is string
+                && request.resource.data.teamId != resource.data.teamId
+                && request.resource.data.teamJoinedAt == request.time
+                && request.resource.data.role == 'player'
+                && existsAfter(teamPath(request.resource.data.teamId))
+                && request.resource.data.attendanceDefaultStatus == 'attending'
+                && request.resource.data.attendanceDefaultHistory.size() == 0
+              )
+            )
+          )
+          || (
+            isTeamCoach(resource.data.teamId)
+            && request.auth.uid != userId
+            && !isTeamOwner(resource.data.teamId, userId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly([
+                'teamId',
+                'teamJoinedAt',
+                'role',
+                'attendanceDefaultStatus',
+                'attendanceDefaultHistory'
+              ])
+            && (
+              request.resource.data.get('managedByCoach', false) == false
+              || request.resource.data.role == 'player'
+            )
+            && (
+              (
+                request.resource.data.teamId == resource.data.teamId
+                && request.resource.data.get(
+                    'teamJoinedAt',
+                    null
+                  ) == resource.data.get('teamJoinedAt', null)
+                && request.resource.data.role in ['admin', 'player']
+              )
+              || (
+                request.resource.data.teamId == null
+                && request.resource.data.get('teamJoinedAt', null) == null
+                && request.resource.data.role == 'player'
+              )
+            )
+          )
+        );
+
+      allow delete: if isAuthenticated()
+        && request.auth.uid != userId
+        && resource.data.teamId is string
+        && resource.data.get('managedByCoach', false) == true
+        && isTeamCoach(resource.data.teamId);
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if belongsToTeam(resource.data.teamId);
+      allow create: if isTeamCoach(request.resource.data.teamId)
+        && request.resource.data.keys().hasOnly([
+          'teamId',
+          'title',
+          'startTime',
+          'endTime',
+          'recurrenceSeriesId',
+          'createdAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.startTime is timestamp
+        && request.resource.data.endTime is timestamp
+        && request.resource.data.endTime > request.resource.data.startTime;
+      allow update: if isTeamCoach(resource.data.teamId)
+        && request.resource.data.teamId == resource.data.teamId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.startTime is timestamp
+        && request.resource.data.endTime is timestamp
+        && request.resource.data.endTime > request.resource.data.startTime
+        && request.resource.data.recurrenceSeriesId
+          == resource.data.recurrenceSeriesId
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isTeamCoach(resource.data.teamId);
+
+      match /attendance/{userId} {
+        function parentSession() {
+          return get(
+            /databases/$(database)/documents/sessions/$(sessionId)
+          ).data;
+        }
+
+        function canEditAttendance() {
+          return belongsToTeam(parentSession().teamId)
+            && ((request.auth.uid == userId
+                && request.time < parentSession().endTime)
+              || isTeamCoach(parentSession().teamId));
+        }
+
+        function targetIsPlayer() {
+          return exists(userPath(userId))
+            && get(userPath(userId)).data.role == 'player'
+            && get(userPath(userId)).data.teamId == parentSession().teamId;
+        }
+
+        allow read: if belongsToTeam(parentSession().teamId);
+        allow create: if canEditAttendance()
+          && targetIsPlayer()
+          && request.resource.data.keys().hasOnly([
+            'status',
+            'note',
+            'updatedBy',
+            'updatedAt'
+          ])
+          && hasValidAttendanceShape(request.resource.data)
+          && (isTeamCoach(parentSession().teamId)
+            || isPlayerAttendanceStatus(request.resource.data.status));
+        allow update: if canEditAttendance()
+          && targetIsPlayer()
+          && request.resource.data.keys().hasOnly([
+            'status',
+            'note',
+            'updatedBy',
+            'updatedAt'
+          ])
+          && hasValidAttendanceShape(request.resource.data)
+          && (isTeamCoach(parentSession().teamId)
+            || (isPlayerAttendanceStatus(resource.data.status)
+              && isPlayerAttendanceStatus(request.resource.data.status)));
+        allow delete: if canEditAttendance()
+          && targetIsPlayer()
+          && (isTeamCoach(parentSession().teamId)
+            || isPlayerAttendanceStatus(resource.data.status));
+      }
+    }
+  }
+}
