@@ -43,3 +43,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase local cache/emulator state
+/.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+
+# Cloud Functions (Node.js)
+functions/node_modules/
+functions/lib/
+functions/coverage/
+functions/.runtimeconfig.json
+functions/*.local
