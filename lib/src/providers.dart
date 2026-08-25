@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/app_user.dart';
+import 'models/team_membership.dart';
 import 'models/team_session.dart';
 import 'repositories/attendance_repository.dart';
 import 'repositories/auth_repository.dart';
@@ -56,4 +57,29 @@ final teamInvitationNameProvider = FutureProvider.family<String?, String>(
 );
 final teamSessionsProvider = StreamProvider.family<List<TeamSession>, String>(
   (ref, teamId) => ref.watch(sessionRepositoryProvider).watchSessions(teamId),
+);
+final membershipsForUserProvider =
+    StreamProvider.family<List<TeamMembership>, String>(
+  (ref, userId) => ref
+      .watch(teamRepositoryProvider)
+      .watchMembershipsForUser(userId),
+);
+final teamMembersProvider = StreamProvider.family<List<TeamMembership>, String>(
+  (ref, teamId) => ref.watch(teamRepositoryProvider).watchTeamMembers(teamId),
+);
+final membershipProvider = StreamProvider.family<
+    TeamMembership?,
+    ({String teamId, String memberId})>(
+  (ref, key) => ref
+      .watch(teamRepositoryProvider)
+      .watchMembership(key.teamId, key.memberId),
+);
+final activeMembershipProvider = StreamProvider.family<TeamMembership?, String>(
+  (ref, userId) => ref
+      .watch(teamRepositoryProvider)
+      .watchMembershipsForUser(userId)
+      .map((memberships) {
+        final active = memberships.where((membership) => membership.active);
+        return active.isEmpty ? null : active.first;
+      }),
 );

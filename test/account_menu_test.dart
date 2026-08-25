@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mi_asistencia/src/app.dart';
 import 'package:mi_asistencia/src/models/app_user.dart';
+import 'package:mi_asistencia/src/models/attendance.dart';
+import 'package:mi_asistencia/src/models/team_membership.dart';
 import 'package:mi_asistencia/src/providers.dart';
+import 'package:mi_asistencia/src/repositories/attendance_repository.dart';
+import 'package:mi_asistencia/src/repositories/team_repository.dart';
 import 'package:mi_asistencia/src/screens/dashboard_screen.dart';
 
 void main() {
@@ -15,18 +19,23 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    const user = AppUser(
-      id: 'player-1',
-      email: 'player@example.com',
-      fullName: 'Jugador de prueba',
-      role: UserRole.player,
+    const user = TeamMembership(
       teamId: 'team-1',
+      memberId: 'player-1',
+      userId: 'player-1',
+      fullName: 'Jugador de prueba',
+      email: 'player@example.com',
+      role: UserRole.player,
       active: true,
     );
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          teamRepositoryProvider.overrideWithValue(_FakeTeamRepository()),
+          attendanceRepositoryProvider.overrideWithValue(
+            _FakeAttendanceRepository(),
+          ),
           teamProvider('team-1').overrideWith((ref) => Stream.value(null)),
           teamSessionsProvider(
             'team-1',
@@ -78,4 +87,31 @@ void main() {
       lessThanOrEqualTo(460),
     );
   });
+}
+
+class _FakeTeamRepository implements TeamRepository {
+  @override
+  Stream<List<TeamMembership>> watchTeamMembers(String teamId) =>
+      Stream.value(const <TeamMembership>[]);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeAttendanceRepository implements AttendanceRepository {
+  @override
+  Stream<AttendanceHistorySnapshot> watchAttendanceForSessions(
+    Iterable<String> sessionIds,
+  ) {
+    return Stream.value(
+      const AttendanceHistorySnapshot(
+        attendanceBySession: {},
+        loadedSessionIds: {},
+        totalSessionCount: 0,
+      ),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

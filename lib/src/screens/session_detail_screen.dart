@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../widgets/app_notification.dart';
@@ -19,7 +20,7 @@ class SessionDetailScreen extends ConsumerStatefulWidget {
   });
 
   final TeamSession session;
-  final AppUser currentUser;
+  final TeamRosterMember currentUser;
 
   @override
   ConsumerState<SessionDetailScreen> createState() =>
@@ -263,7 +264,7 @@ class _PlayerAttendancePanel extends ConsumerStatefulWidget {
   });
 
   final TeamSession session;
-  final AppUser currentUser;
+  final TeamRosterMember currentUser;
 
   @override
   ConsumerState<_PlayerAttendancePanel> createState() =>
@@ -488,14 +489,14 @@ class _CoachAttendancePanel extends ConsumerWidget {
   });
 
   final TeamSession session;
-  final AppUser currentUser;
+  final TeamRosterMember currentUser;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final teamRepository = ref.watch(teamRepositoryProvider);
     final attendanceRepository = ref.watch(attendanceRepositoryProvider);
-    return StreamBuilder<List<AppUser>>(
-      stream: teamRepository.watchMembers(session.teamId),
+    return StreamBuilder<List<TeamRosterMember>>(
+      stream: teamRepository.watchTeamMembers(session.teamId),
       builder: (context, membersSnapshot) {
         if (membersSnapshot.hasError) {
           return const Text('No se pudo cargar la plantilla.');
@@ -601,7 +602,7 @@ class CoachAttendanceListItem extends StatelessWidget {
     super.key,
   });
 
-  final AppUser member;
+  final TeamRosterMember member;
   final AttendanceRecord record;
   final String updateLabel;
   final VoidCallback onTap;
@@ -678,8 +679,8 @@ Future<void> _saveAttendance({
   required BuildContext context,
   required WidgetRef ref,
   required TeamSession session,
-  required AppUser targetUser,
-  required AppUser currentUser,
+  required TeamRosterMember targetUser,
+  required TeamRosterMember currentUser,
   required AttendanceDraft draft,
 }) async {
   try {

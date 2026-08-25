@@ -1,5 +1,5 @@
-import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 
 typedef PlayerAttendanceCsvRow = ({
@@ -38,7 +38,7 @@ String buildPlayerAttendanceCsv(Iterable<PlayerAttendanceCsvRow> rows) {
 }
 
 String buildSessionAttendanceCsv({
-  required Iterable<AppUser> players,
+  required Iterable<TeamRosterMember> players,
   required Iterable<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
 }) {

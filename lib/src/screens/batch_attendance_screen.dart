@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../widgets/app_notification.dart';
@@ -11,7 +11,7 @@ import '../widgets/app_widgets.dart';
 
 Future<bool?> showBatchAttendanceEditor({
   required BuildContext context,
-  required AppUser user,
+  required TeamRosterMember user,
   required List<TeamSession> sessions,
 }) {
   return showModalBottomSheet<bool>(
@@ -32,7 +32,7 @@ class BatchAttendanceScreen extends ConsumerStatefulWidget {
     super.key,
   });
 
-  final AppUser user;
+  final TeamRosterMember user;
   final List<TeamSession> sessions;
   final bool initiallySelectAll;
 
@@ -312,7 +312,7 @@ class _BatchAttendanceBottomBar extends StatelessWidget {
 class _BatchAttendanceEditor extends ConsumerStatefulWidget {
   const _BatchAttendanceEditor({required this.user, required this.sessions});
 
-  final AppUser user;
+  final TeamRosterMember user;
   final List<TeamSession> sessions;
 
   @override

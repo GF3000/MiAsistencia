@@ -142,10 +142,21 @@ class _ProfileGate extends ConsumerWidget {
             onFinished: onInvitationConsumed,
           );
         }
-        if (!appUser.hasTeam) {
-          return OnboardingScreen(user: appUser);
-        }
-        return DashboardScreen(user: appUser);
+        final membership = ref.watch(activeMembershipProvider(appUser.id));
+        return membership.when(
+          loading: () => const AppLoadingView(),
+          error: (error, stackTrace) => AppErrorView(
+            message: 'No se pudo cargar tu equipo.',
+            onRetry: () =>
+                ref.invalidate(activeMembershipProvider(appUser.id)),
+          ),
+          data: (activeMembership) {
+            if (activeMembership == null) {
+              return OnboardingScreen(user: appUser);
+            }
+            return DashboardScreen(user: activeMembership);
+          },
+        );
       },
     );
   }

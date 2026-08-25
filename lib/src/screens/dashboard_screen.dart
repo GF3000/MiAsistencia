@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../repositories/team_repository.dart';
@@ -26,7 +27,7 @@ import 'session_detail_screen.dart';
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({required this.user, super.key});
 
-  final AppUser user;
+  final TeamRosterMember user;
 
   @override
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
@@ -701,7 +702,7 @@ extension _SeparatedWidgets on List<Widget> {
 class _AccountMenuHeader extends StatelessWidget {
   const _AccountMenuHeader({required this.user});
 
-  final AppUser user;
+  final TeamRosterMember user;
 
   @override
   Widget build(BuildContext context) {
@@ -805,7 +806,7 @@ class _SessionCard extends ConsumerWidget {
   });
 
   final TeamSession session;
-  final AppUser user;
+  final TeamRosterMember user;
   final VoidCallback onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onLongPress;
@@ -942,12 +943,12 @@ class _AttendingPlayerCount extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final membersStream = ref
         .watch(teamRepositoryProvider)
-        .watchMembers(session.teamId);
+        .watchTeamMembers(session.teamId);
     final attendanceStream = ref
         .watch(attendanceRepositoryProvider)
         .watchSessionAttendance(session.id);
 
-    return StreamBuilder<List<AppUser>>(
+    return StreamBuilder<List<TeamRosterMember>>(
       stream: membersStream,
       builder: (context, membersSnapshot) {
         final players = membersSnapshot.data

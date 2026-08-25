@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/app_user.dart';
+import '../models/team_membership.dart';
 
 const _teamCodeAlphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 final _teamCodePattern = RegExp(r'^[A-HJ-KM-NP-Z2-9]{6}$');
@@ -46,6 +47,11 @@ class TeamRepository {
 
   final FirebaseFirestore _firestore;
 
+  CollectionReference<Map<String, dynamic>> get _memberships =>
+      _firestore.collection('teamMemberships');
+
+  // --- Reads --------------------------------------------------------------
+
   Stream<Team?> watchTeam(String teamId) {
     return _firestore
         .collection('teams')
@@ -56,6 +62,8 @@ class TeamRepository {
         );
   }
 
+  /// Legacy roster read: active members from `users` (kept during the
+  /// single-team bridge). Prefer [watchTeamMembers] once the UI consumes V2.
   Stream<List<AppUser>> watchMembers(String teamId) {
     return _firestore
         .collection('users')
@@ -73,6 +81,53 @@ class TeamRepository {
           );
           return members;
         });
+  }
+
+  /// Active roster members from `teamMemberships`, ordered by name.
+  Stream<List<TeamMembership>> watchTeamMembers(String teamId) {
+    return _memberships
+        .where('teamId', isEqualTo: teamId)
+        .where('active', isEqualTo: true)
+        .snapshots()
+        .map((snapshot) {
+          final members = snapshot.docs
+              .map(TeamMembership.fromSnapshot)
+              .toList();
+          members.sort(
+            (left, right) => left.fullName.toLowerCase().compareTo(
+              right.fullName.toLowerCase(),
+            ),
+          );
+          return members;
+        });
+  }
+
+  /// Every membership whose [TeamMembership.userId] is [userId], most recent
+  /// first (used by the team selector / multi-team navigation).
+  Stream<List<TeamMembership>> watchMembershipsForUser(String userId) {
+    return _memberships
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map((snapshot) {
+          final memberships = snapshot.docs
+              .map(TeamMembership.fromSnapshot)
+              .toList()
+            ..sort(
+              (left, right) => (left.updatedAt ?? left.createdAt ?? DateTime(0))
+                  .compareTo(right.updatedAt ?? right.createdAt ?? DateTime(0)),
+            );
+          return memberships.reversed.toList();
+        });
+  }
+
+  Stream<TeamMembership?> watchMembership(String teamId, String memberId) {
+    return _memberships
+        .doc(teamMembershipDocId(teamId, memberId))
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.exists ? TeamMembership.fromSnapshot(snapshot) : null,
+        );
   }
 
   Future<Team?> findTeamByCode(String code) async {
@@ -118,6 +173,20 @@ class TeamRepository {
     });
   }
 
+  // --- Writes -------------------------------------------------------------
+
+  /// Points the user's navigation preference at [teamId]. `activeTeamId` is a
+  /// routing preference, not a membership; this never changes membership.
+  Future<void> setActiveTeam({
+    required String userId,
+    required String? teamId,
+  }) {
+    return _firestore.collection('users').doc(userId).update({
+      'activeTeamId': teamId,
+      'membershipWriteToken': _newWriteToken(),
+    });
+  }
+
   Future<String> createTeam({
     required String name,
     required String userId,
@@ -129,6 +198,8 @@ class TeamRepository {
           .collection('teamInvites')
           .doc(code);
       final userReference = _firestore.collection('users').doc(userId);
+      final membershipReference = _memberships
+          .doc(teamMembershipDocId(code, userId));
 
       var collision = false;
       await _firestore.runTransaction((transaction) async {
@@ -138,6 +209,12 @@ class TeamRepository {
           collision = true;
           return;
         }
+        final userSnapshot = await transaction.get(userReference);
+        if (!userSnapshot.exists) {
+          throw const TeamException('No se pudo encontrar tu perfil.');
+        }
+        final user = AppUser.fromSnapshot(userSnapshot);
+
         transaction.set(teamReference, {
           'name': name.trim(),
           'joinCode': code,
@@ -145,12 +222,31 @@ class TeamRepository {
           'createdAt': FieldValue.serverTimestamp(),
         });
         transaction.set(invitationReference, {'name': name.trim()});
+        transaction.set(
+          membershipReference,
+          _newMembershipData(
+            teamId: code,
+            memberId: userId,
+            userId: userId,
+            fullName: user.fullName,
+            email: user.email,
+            role: UserRole.admin,
+            active: true,
+            managedByCoach: false,
+            membershipPeriods: [_openPeriod()],
+            attendancePresumption: AttendancePresumption.attending,
+          ),
+        );
         transaction.update(userReference, {
-          'teamId': teamReference.id,
+          'teamId': code,
           'teamJoinedAt': FieldValue.serverTimestamp(),
-          'role': 'admin',
-          'attendanceDefaultStatus': 'attending',
+          'role': UserRole.admin.firestoreValue,
+          'attendanceDefaultStatus':
+              AttendancePresumption.attending.firestoreValue,
           'attendanceDefaultHistory': [],
+          'activeTeamId': code,
+          'schemaVersion': 2,
+          'membershipWriteToken': _newWriteToken(),
         });
       });
       if (!collision) {
@@ -178,6 +274,8 @@ class TeamRepository {
 
     final teamReference = _firestore.collection('teams').doc(team.id);
     final userReference = _firestore.collection('users').doc(userId);
+    final newMembershipReference = _memberships
+        .doc(teamMembershipDocId(team.id, userId));
     _JoinOutcome? outcome;
     await _firestore.runTransaction((transaction) async {
       outcome = null;
@@ -207,6 +305,50 @@ class TeamRepository {
         return;
       }
 
+      // Single-team bridge: close the membership of the team being left.
+      final oldTeamId = user.teamId;
+      if (oldTeamId != null && oldTeamId.isNotEmpty) {
+        final oldMembershipReference = _memberships
+            .doc(teamMembershipDocId(oldTeamId, userId));
+        final oldMembershipSnapshot = await transaction.get(
+          oldMembershipReference,
+        );
+        if (oldMembershipSnapshot.exists) {
+          final old = TeamMembership.fromSnapshot(oldMembershipSnapshot);
+          transaction.set(
+            oldMembershipReference,
+            _existingMembershipData(old, active: false, closeOpenPeriod: true),
+          );
+        }
+      }
+
+      final newMembershipSnapshot = await transaction.get(
+        newMembershipReference,
+      );
+      if (newMembershipSnapshot.exists) {
+        final existing = TeamMembership.fromSnapshot(newMembershipSnapshot);
+        transaction.set(
+          newMembershipReference,
+          _existingMembershipData(existing, active: true, openNewPeriod: true),
+        );
+      } else {
+        transaction.set(
+          newMembershipReference,
+          _newMembershipData(
+            teamId: team.id,
+            memberId: userId,
+            userId: userId,
+            fullName: user.fullName,
+            email: user.email,
+            role: UserRole.player,
+            active: true,
+            managedByCoach: false,
+            membershipPeriods: [_openPeriod()],
+            attendancePresumption: AttendancePresumption.attending,
+          ),
+        );
+      }
+
       transaction.update(userReference, {
         'teamId': team.id,
         'teamJoinedAt': FieldValue.serverTimestamp(),
@@ -214,6 +356,9 @@ class TeamRepository {
         'attendanceDefaultStatus':
             AttendancePresumption.attending.firestoreValue,
         'attendanceDefaultHistory': [],
+        'activeTeamId': team.id,
+        'schemaVersion': 2,
+        'membershipWriteToken': _newWriteToken(),
       });
       outcome = _JoinOutcome.joined;
     });
@@ -248,6 +393,8 @@ class TeamRepository {
     required String userId,
   }) async {
     final userReference = _firestore.collection('users').doc(userId);
+    final membershipReference = _memberships
+        .doc(teamMembershipDocId(teamId, userId));
     await _firestore.runTransaction((transaction) async {
       final userSnapshot = await transaction.get(userReference);
       if (!userSnapshot.exists) {
@@ -262,12 +409,29 @@ class TeamRepository {
           'Los entrenadores no pueden abandonar el equipo desde esta opción.',
         );
       }
+
+      final membershipSnapshot = await transaction.get(membershipReference);
+      if (membershipSnapshot.exists) {
+        final membership = TeamMembership.fromSnapshot(membershipSnapshot);
+        transaction.set(
+          membershipReference,
+          _existingMembershipData(
+            membership,
+            active: false,
+            closeOpenPeriod: true,
+          ),
+        );
+      }
+
       transaction.update(userReference, {
         'teamId': null,
         'teamJoinedAt': null,
         'role': UserRole.player.firestoreValue,
-        'attendanceDefaultStatus': 'attending',
+        'attendanceDefaultStatus': AttendancePresumption.attending.firestoreValue,
         'attendanceDefaultHistory': [],
+        'activeTeamId': null,
+        'schemaVersion': 2,
+        'membershipWriteToken': _newWriteToken(),
       });
     });
   }
@@ -285,6 +449,8 @@ class TeamRepository {
     final teamReference = _firestore.collection('teams').doc(teamId);
     final actorReference = _firestore.collection('users').doc(actingUserId);
     final playerReference = _firestore.collection('users').doc();
+    final membershipReference = _memberships
+        .doc(teamMembershipDocId(teamId, playerReference.id));
 
     await _firestore.runTransaction((transaction) async {
       final teamSnapshot = await transaction.get(teamReference);
@@ -314,7 +480,24 @@ class TeamRepository {
             AttendancePresumption.attending.firestoreValue,
         'attendanceDefaultHistory': [],
         'createdAt': FieldValue.serverTimestamp(),
+        'schemaVersion': 2,
+        'membershipWriteToken': _newWriteToken(),
       });
+      transaction.set(
+        membershipReference,
+        _newMembershipData(
+          teamId: teamId,
+          memberId: playerReference.id,
+          userId: null,
+          fullName: normalizedName,
+          email: '',
+          role: UserRole.player,
+          active: true,
+          managedByCoach: true,
+          membershipPeriods: [_openPeriod()],
+          attendancePresumption: AttendancePresumption.attending,
+        ),
+      );
     });
   }
 
@@ -335,14 +518,31 @@ class TeamRepository {
           );
         }
       },
-      update: (transaction, memberReference, member) {
+      update: (
+        transaction,
+        memberReference,
+        membershipReference,
+        member,
+        membership,
+      ) {
         transaction.update(memberReference, {
           'role': role.firestoreValue,
-          if (role == UserRole.player) ...{
-            'attendanceDefaultStatus': 'attending',
-            'attendanceDefaultHistory': [],
-          },
+          'attendanceDefaultStatus':
+              AttendancePresumption.attending.firestoreValue,
+          'attendanceDefaultHistory': [],
+          'membershipWriteToken': _newWriteToken(),
         });
+        if (membership != null) {
+          transaction.set(
+            membershipReference,
+            _existingMembershipData(
+              membership,
+              role: role,
+              attendancePresumption: AttendancePresumption.attending,
+              attendanceHistory: const [],
+            ),
+          );
+        }
       },
     );
   }
@@ -356,18 +556,34 @@ class TeamRepository {
       teamId: teamId,
       memberId: memberId,
       actingUserId: actingUserId,
-      update: (transaction, memberReference, member) {
+      update: (
+        transaction,
+        memberReference,
+        membershipReference,
+        member,
+        membership,
+      ) {
         if (member.managedByCoach) {
           transaction.delete(memberReference);
+          transaction.delete(membershipReference);
           return;
         }
         transaction.update(memberReference, {
           'teamId': null,
           'teamJoinedAt': null,
           'role': UserRole.player.firestoreValue,
-          'attendanceDefaultStatus': 'attending',
+          'attendanceDefaultStatus':
+              AttendancePresumption.attending.firestoreValue,
           'attendanceDefaultHistory': [],
+          'activeTeamId': null,
+          'membershipWriteToken': _newWriteToken(),
         });
+        if (membership != null) {
+          transaction.set(
+            membershipReference,
+            _existingMembershipData(membership, active: false, closeOpenPeriod: true),
+          );
+        }
       },
     );
   }
@@ -389,13 +605,38 @@ class TeamRepository {
           );
         }
       },
-      update: (transaction, memberReference, member) {
+      update: (
+        transaction,
+        memberReference,
+        membershipReference,
+        member,
+        membership,
+      ) {
+        final historyEntry = {
+          'status': value.firestoreValue,
+          'effectiveFrom': Timestamp.now(),
+        };
         transaction.update(memberReference, {
           'attendanceDefaultStatus': value.firestoreValue,
-          'attendanceDefaultHistory': FieldValue.arrayUnion([
-            {'status': value.firestoreValue, 'effectiveFrom': Timestamp.now()},
-          ]),
+          'attendanceDefaultHistory': FieldValue.arrayUnion([historyEntry]),
+          'membershipWriteToken': _newWriteToken(),
         });
+        if (membership != null) {
+          transaction.set(
+            membershipReference,
+            _existingMembershipData(
+              membership,
+              attendancePresumption: value,
+              attendanceHistory: [
+                ...membership.attendancePresumptionHistory,
+                AttendancePresumptionChange(
+                  value: value,
+                  effectiveFrom: DateTime.now(),
+                ),
+              ],
+            ),
+          );
+        }
       },
     );
   }
@@ -407,7 +648,9 @@ class TeamRepository {
     required void Function(
       Transaction transaction,
       DocumentReference<Map<String, dynamic>> memberReference,
+      DocumentReference<Map<String, dynamic>> membershipReference,
       AppUser member,
+      TeamMembership? membership,
     )
     update,
     void Function(AppUser member)? validate,
@@ -421,6 +664,8 @@ class TeamRepository {
     final teamReference = _firestore.collection('teams').doc(teamId);
     final actorReference = _firestore.collection('users').doc(actingUserId);
     final memberReference = _firestore.collection('users').doc(memberId);
+    final membershipReference = _memberships
+        .doc(teamMembershipDocId(teamId, memberId));
 
     return _firestore.runTransaction((transaction) async {
       final teamSnapshot = await transaction.get(teamReference);
@@ -454,7 +699,131 @@ class TeamRepository {
       }
 
       validate?.call(member);
-      update(transaction, memberReference, member);
+      final membershipSnapshot = await transaction.get(membershipReference);
+      final membership = membershipSnapshot.exists
+          ? TeamMembership.fromSnapshot(membershipSnapshot)
+          : null;
+      update(
+        transaction,
+        memberReference,
+        membershipReference,
+        member,
+        membership,
+      );
     });
+  }
+
+  // --- Write helpers ------------------------------------------------------
+
+  String _newWriteToken() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  Map<String, dynamic> _openPeriod() {
+    return {'joinedAt': FieldValue.serverTimestamp(), 'leftAt': null};
+  }
+
+  Map<String, dynamic> _periodToWrite(MembershipPeriod period) {
+    return {
+      'joinedAt': Timestamp.fromDate(period.joinedAt),
+      'leftAt': period.leftAt == null
+          ? null
+          : Timestamp.fromDate(period.leftAt!),
+    };
+  }
+
+  List<Map<String, dynamic>> _historyToWrite(
+    List<AttendancePresumptionChange> history,
+  ) {
+    return history
+        .map(
+          (change) => {
+            'status': change.value.firestoreValue,
+            'effectiveFrom': Timestamp.fromDate(change.effectiveFrom),
+          },
+        )
+        .toList();
+  }
+
+  Map<String, dynamic> _newMembershipData({
+    required String teamId,
+    required String memberId,
+    required String? userId,
+    required String fullName,
+    required String email,
+    required UserRole role,
+    required bool active,
+    required bool managedByCoach,
+    required List<Map<String, dynamic>> membershipPeriods,
+    required AttendancePresumption attendancePresumption,
+  }) {
+    return {
+      'teamId': teamId,
+      'memberId': memberId,
+      'userId': userId,
+      'fullName': fullName,
+      'email': email,
+      'role': role.firestoreValue,
+      'active': active,
+      'managedByCoach': managedByCoach,
+      'membershipPeriods': membershipPeriods,
+      'attendanceDefaultStatus': attendancePresumption.firestoreValue,
+      'attendanceDefaultHistory': [],
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'migrationVersion': 2,
+    };
+  }
+
+  Map<String, dynamic> _existingMembershipData(
+    TeamMembership membership, {
+    bool? active,
+    bool closeOpenPeriod = false,
+    bool openNewPeriod = false,
+    UserRole? role,
+    AttendancePresumption? attendancePresumption,
+    List<AttendancePresumptionChange>? attendanceHistory,
+  }) {
+    var periods = membership.membershipPeriods;
+    if (closeOpenPeriod) {
+      periods = periods.map((period) {
+        if (!period.isOpen) {
+          return period;
+        }
+        return MembershipPeriod(
+          joinedAt: period.joinedAt,
+          leftAt: DateTime.now(),
+        );
+      }).toList();
+    }
+    if (openNewPeriod && !periods.any((period) => period.isOpen)) {
+      periods = [
+        ...periods,
+        MembershipPeriod(joinedAt: DateTime.now(), leftAt: null),
+      ];
+    }
+    final history = attendanceHistory ?? membership.attendancePresumptionHistory;
+    return {
+      'teamId': membership.teamId,
+      'memberId': membership.memberId,
+      'userId': membership.userId,
+      'fullName': membership.fullName,
+      'email': membership.email,
+      'role': (role ?? membership.role).firestoreValue,
+      'active': active ?? membership.active,
+      'managedByCoach': membership.managedByCoach,
+      'membershipPeriods': periods.map(_periodToWrite).toList(),
+      'attendanceDefaultStatus': (attendancePresumption ??
+              membership.attendancePresumption)
+          .firestoreValue,
+      'attendanceDefaultHistory': _historyToWrite(history),
+      'createdAt': membership.createdAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(membership.createdAt!),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'migrationVersion': membership.migrationVersion ?? 2,
+    };
   }
 }

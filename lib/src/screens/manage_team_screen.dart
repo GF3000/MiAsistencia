@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
 import '../models/app_user.dart';
+import '../models/team_membership.dart';
 import '../providers.dart';
 import '../repositories/team_repository.dart';
 import '../theme/app_theme.dart';
@@ -20,8 +21,8 @@ enum TeamMemberAction {
 }
 
 List<TeamMemberAction> availableTeamMemberActions({
-  required AppUser currentUser,
-  required AppUser member,
+  required TeamRosterMember currentUser,
+  required TeamRosterMember member,
   required Team team,
 }) {
   if (!currentUser.isCoach ||
@@ -44,7 +45,7 @@ List<TeamMemberAction> availableTeamMemberActions({
 class ManageTeamScreen extends ConsumerStatefulWidget {
   const ManageTeamScreen({required this.currentUser, super.key});
 
-  final AppUser currentUser;
+  final TeamRosterMember currentUser;
 
   @override
   ConsumerState<ManageTeamScreen> createState() => _ManageTeamScreenState();
@@ -85,8 +86,8 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                 message: 'Este equipo ya no existe.',
               );
             }
-            return StreamBuilder<List<AppUser>>(
-              stream: repository.watchMembers(teamId),
+            return StreamBuilder<List<TeamRosterMember>>(
+              stream: repository.watchTeamMembers(teamId),
               builder: (context, membersSnapshot) {
                 if (membersSnapshot.hasError) {
                   return const EmptyState(
@@ -312,7 +313,10 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     }
   }
 
-  Future<void> _handleAction(AppUser member, TeamMemberAction action) async {
+  Future<void> _handleAction(
+    TeamRosterMember member,
+    TeamMemberAction action,
+  ) async {
     final confirmed = await _confirmAction(member, action);
     if (!confirmed || !mounted) {
       return;
@@ -403,7 +407,10 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     }
   }
 
-  Future<bool> _confirmAction(AppUser member, TeamMemberAction action) async {
+  Future<bool> _confirmAction(
+    TeamRosterMember member,
+    TeamMemberAction action,
+  ) async {
     final title = switch (action) {
       TeamMemberAction.makeCoach => 'Hacer entrenador',
       TeamMemberAction.makePlayer => 'Hacer jugador',
@@ -632,11 +639,11 @@ class _MemberSection extends StatelessWidget {
 
   final String title;
   final int count;
-  final List<AppUser> members;
-  final AppUser currentUser;
+  final List<TeamRosterMember> members;
+  final TeamRosterMember currentUser;
   final Team team;
   final String? busyMemberId;
-  final void Function(AppUser member, TeamMemberAction action) onAction;
+  final void Function(TeamRosterMember member, TeamMemberAction action) onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -680,8 +687,8 @@ class TeamMemberCard extends StatelessWidget {
     super.key,
   });
 
-  final AppUser member;
-  final AppUser currentUser;
+  final TeamRosterMember member;
+  final TeamRosterMember currentUser;
   final Team team;
   final bool busy;
   final ValueChanged<TeamMemberAction> onAction;

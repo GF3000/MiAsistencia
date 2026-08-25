@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../theme/app_theme.dart';
@@ -27,7 +28,7 @@ class PlayerAttendanceOverview extends ConsumerStatefulWidget {
 
 class _PlayerAttendanceOverviewState
     extends ConsumerState<PlayerAttendanceOverview> {
-  late Stream<List<AppUser>> _membersStream;
+  late Stream<List<TeamRosterMember>> _membersStream;
   late Stream<AttendanceHistorySnapshot> _attendanceStream;
   late int _sessionsSignature;
 
@@ -55,7 +56,7 @@ class _PlayerAttendanceOverviewState
     );
     _membersStream = ref
         .read(teamRepositoryProvider)
-        .watchMembers(widget.teamId);
+        .watchTeamMembers(widget.teamId);
     _attendanceStream = ref
         .read(attendanceRepositoryProvider)
         .watchAttendanceForSessions(
@@ -73,7 +74,7 @@ class _PlayerAttendanceOverviewState
       );
     }
 
-    return StreamBuilder<List<AppUser>>(
+    return StreamBuilder<List<TeamRosterMember>>(
       stream: _membersStream,
       builder: (context, membersSnapshot) {
         if (membersSnapshot.hasError) {
@@ -145,7 +146,7 @@ class _PlayerAttendanceOverviewState
 class PlayerAttendanceTableRow {
   const PlayerAttendanceTableRow({required this.player, required this.stats});
 
-  final AppUser player;
+  final TeamRosterMember player;
   final PlayerAttendanceStats stats;
 }
 

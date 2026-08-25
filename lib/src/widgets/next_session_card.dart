@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../theme/app_theme.dart';
@@ -20,7 +20,7 @@ class NextSessionCard extends ConsumerWidget {
   });
 
   final TeamSession session;
-  final AppUser user;
+  final TeamRosterMember user;
   final VoidCallback onOpen;
 
   @override
@@ -103,7 +103,7 @@ class _PlayerQuickAttendance extends ConsumerStatefulWidget {
   const _PlayerQuickAttendance({required this.session, required this.user});
 
   final TeamSession session;
-  final AppUser user;
+  final TeamRosterMember user;
 
   @override
   ConsumerState<_PlayerQuickAttendance> createState() =>
@@ -227,12 +227,12 @@ class _CoachNextSessionSummary extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final membersStream = ref
         .watch(teamRepositoryProvider)
-        .watchMembers(session.teamId);
+        .watchTeamMembers(session.teamId);
     final attendanceStream = ref
         .watch(attendanceRepositoryProvider)
         .watchSessionAttendance(session.id);
 
-    return StreamBuilder<List<AppUser>>(
+    return StreamBuilder<List<TeamRosterMember>>(
       stream: membersStream,
       builder: (context, membersSnapshot) {
         return StreamBuilder<Map<String, AttendanceRecord>>(

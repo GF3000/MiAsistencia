@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/app_user.dart';
 import '../models/attendance.dart';
 import '../models/player_motivation.dart';
+import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../theme/app_theme.dart';
@@ -181,7 +181,7 @@ class TeamPerformancePanel extends ConsumerStatefulWidget {
     super.key,
   });
 
-  final AppUser user;
+  final TeamRosterMember user;
   final String teamId;
   final String teamName;
   final List<TeamSession> completedSessions;
@@ -192,7 +192,7 @@ class TeamPerformancePanel extends ConsumerStatefulWidget {
 }
 
 class _TeamPerformancePanelState extends ConsumerState<TeamPerformancePanel> {
-  late Stream<List<AppUser>> _membersStream;
+  late Stream<List<TeamRosterMember>> _membersStream;
   late Stream<AttendanceHistorySnapshot> _attendanceStream;
   late int _sessionsSignature;
 
@@ -220,7 +220,7 @@ class _TeamPerformancePanelState extends ConsumerState<TeamPerformancePanel> {
     );
     _membersStream = ref
         .read(teamRepositoryProvider)
-        .watchMembers(widget.teamId);
+        .watchTeamMembers(widget.teamId);
     _attendanceStream = ref
         .read(attendanceRepositoryProvider)
         .watchAttendanceForSessions(
@@ -230,7 +230,7 @@ class _TeamPerformancePanelState extends ConsumerState<TeamPerformancePanel> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<AppUser>>(
+    return StreamBuilder<List<TeamRosterMember>>(
       stream: _membersStream,
       builder: (context, membersSnapshot) {
         if (membersSnapshot.hasError) {

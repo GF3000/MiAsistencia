@@ -63,17 +63,21 @@ class AppUser implements TeamRosterMember {
 
   @override
   final String id;
+  @override
   final String email;
   @override
   final String fullName;
   @override
   final UserRole role;
+  @override
   final String? teamId;
   @override
   final bool active;
   final DateTime? teamJoinedAt;
   final DateTime? createdAt;
+  @override
   final bool managedByCoach;
+  @override
   final AttendancePresumption attendancePresumption;
   final List<AttendancePresumptionChange> attendancePresumptionHistory;
 
@@ -88,9 +92,12 @@ class AppUser implements TeamRosterMember {
   /// single-team profile".
   final int? schemaVersion;
 
+  @override
   bool get isCoach => role.isCoach;
+  @override
   bool get hasAccount => !managedByCoach;
   bool get hasTeam => teamId != null && teamId!.isNotEmpty;
+  @override
   bool get canLeaveTeam => role == UserRole.player && hasAccount && hasTeam;
   @override
   DateTime? get teamMembershipStartedAt => teamJoinedAt ?? createdAt;

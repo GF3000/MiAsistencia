@@ -2,6 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'app_user.dart';
 
+/// Deterministic document id for a [TeamMembership]: `{teamId}__{memberId}`.
+/// Kept in sync with `buildMembershipId` in `functions/src/migrationIds.ts`.
+String teamMembershipDocId(String teamId, String memberId) =>
+    '${teamId}__$memberId';
+
 /// Read-only contract consumed by the pure attendance and ranking functions
 /// in `attendance.dart` and `player_motivation.dart`.
 ///
@@ -17,10 +22,27 @@ abstract interface class TeamRosterMember {
 
   String get fullName;
 
+  String get email;
+
   UserRole get role;
+
+  bool get isCoach;
 
   /// Whether this member currently counts towards the roster.
   bool get active;
+
+  /// The team this member belongs to. Null only for a legacy profile that has
+  /// no team yet.
+  String? get teamId;
+
+  bool get managedByCoach;
+
+  bool get hasAccount;
+
+  /// The base attendance presumption (without applying the change history).
+  AttendancePresumption get attendancePresumption;
+
+  bool get canLeaveTeam;
 
   /// The instant from which this member's presence should be evaluated.
   /// Sessions scheduled before this instant resolve as
@@ -128,6 +150,7 @@ class TeamMembership implements TeamRosterMember {
     this.migrationVersion,
   });
 
+  @override
   final String teamId;
 
   /// Stable identifier of this roster entry. For members with an account
@@ -140,6 +163,7 @@ class TeamMembership implements TeamRosterMember {
 
   @override
   final String fullName;
+  @override
   final String email;
   @override
   final UserRole role;
@@ -150,12 +174,14 @@ class TeamMembership implements TeamRosterMember {
   @override
   final bool active;
 
+  @override
   final bool managedByCoach;
 
   /// Chronological join/leave history for this membership. May be empty for
   /// records migrated without period history; see [isActiveAt].
   final List<MembershipPeriod> membershipPeriods;
 
+  @override
   final AttendancePresumption attendancePresumption;
   final List<AttendancePresumptionChange> attendancePresumptionHistory;
   final DateTime? createdAt;
@@ -168,9 +194,14 @@ class TeamMembership implements TeamRosterMember {
   @override
   String get id => memberId;
 
+  @override
   bool get isCoach => role.isCoach;
 
+  @override
   bool get hasAccount => userId != null;
+
+  @override
+  bool get canLeaveTeam => role == UserRole.player && hasAccount && active;
 
   /// The still-open period (no [MembershipPeriod.leftAt]), if any.
   MembershipPeriod? get openPeriod {
