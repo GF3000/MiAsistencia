@@ -86,16 +86,7 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
       _targetTeam = targetTeam;
       if (!widget.user.hasTeam) {
         setState(() => _loading = false);
-        await _joinTeam(allowTeamSwitch: false);
-        return;
-      }
-      if (widget.user.isCoach) {
-        setState(() {
-          _loading = false;
-          _message =
-              'Eres entrenador de tu equipo actual. Antes de unirte a '
-              '${targetTeam.name}, debes transferir su gestión.';
-        });
+        await _joinTeam();
         return;
       }
 
@@ -117,16 +108,12 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
     }
   }
 
-  Future<void> _joinTeam({required bool allowTeamSwitch}) async {
+  Future<void> _joinTeam() async {
     setState(() => _joining = true);
     try {
       await ref
           .read(teamRepositoryProvider)
-          .joinTeam(
-            code: widget.code,
-            userId: widget.user.id,
-            allowTeamSwitch: allowTeamSwitch,
-          );
+          .joinTeam(code: widget.code, userId: widget.user.id);
       if (mounted) {
         setState(() => _waitingForProfileUpdate = true);
       }
@@ -177,7 +164,7 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
       targetTeamName: _targetTeam!.name,
       busy: _joining,
       onCancel: widget.onFinished,
-      onConfirm: () => _joinTeam(allowTeamSwitch: true),
+      onConfirm: _joinTeam,
     );
   }
 }
@@ -225,14 +212,15 @@ class TeamSwitchPrompt extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  '¿Cambiar de equipo?',
+                  '¿Añadir equipo?',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Actualmente perteneces a $currentTeamName. ¿Quieres salirte '
-                  'para unirte a $targetTeamName?',
+                  'Actualmente perteneces a $currentTeamName. ¿Quieres unirte '
+                  'también a $targetTeamName? Mantendrás el acceso a tu equipo '
+                  'actual.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -243,11 +231,11 @@ class TeamSwitchPrompt extends StatelessWidget {
                   children: [
                     TextButton(
                       onPressed: busy ? null : onCancel,
-                      child: const Text('Mantener mi equipo'),
+                      child: const Text('Ahora no'),
                     ),
                     FilledButton(
                       onPressed: busy ? null : onConfirm,
-                      child: Text(busy ? 'Cambiando…' : 'Cambiar de equipo'),
+                      child: Text(busy ? 'Añadiendo…' : 'Añadir equipo'),
                     ),
                   ],
                 ),

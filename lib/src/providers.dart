@@ -74,12 +74,33 @@ final membershipProvider = StreamProvider.family<
       .watch(teamRepositoryProvider)
       .watchMembership(key.teamId, key.memberId),
 );
-final activeMembershipProvider = StreamProvider.family<TeamMembership?, String>(
-  (ref, userId) => ref
-      .watch(teamRepositoryProvider)
-      .watchMembershipsForUser(userId)
-      .map((memberships) {
-        final active = memberships.where((membership) => membership.active);
-        return active.isEmpty ? null : active.first;
-      }),
+final activeMembershipProvider = Provider.family<AsyncValue<TeamMembership?>, String>(
+  (ref, userId) {
+    final memberships = ref.watch(membershipsForUserProvider(userId));
+    final profile = ref.watch(userProfileProvider(userId));
+    if (memberships.hasError || profile.hasError) {
+      return AsyncValue.error(
+        memberships.hasError ? memberships.error! : profile.error!,
+        memberships.hasError
+            ? memberships.stackTrace!
+            : profile.stackTrace!,
+      );
+    }
+    if (memberships.isLoading || profile.isLoading) {
+      return const AsyncValue.loading();
+    }
+    final active = memberships.value
+            ?.where((membership) => membership.active)
+            .toList() ??
+        const <TeamMembership>[];
+    if (active.isEmpty) {
+      return const AsyncValue.data(null);
+    }
+    final activeTeamId = profile.value?.activeTeamId;
+    final resolved = active.firstWhere(
+      (membership) => membership.teamId == activeTeamId,
+      orElse: () => active.first,
+    );
+    return AsyncValue.data(resolved);
+  },
 );

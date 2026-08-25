@@ -146,7 +146,7 @@ void main() {
     );
   });
 
-  testWidgets('asks a player to confirm before changing teams', (tester) async {
+  testWidgets('asks a player to confirm before adding a team', (tester) async {
     var confirmed = false;
     var cancelled = false;
     await tester.pumpWidget(
@@ -161,16 +161,16 @@ void main() {
       ),
     );
 
-    expect(find.text('¿Cambiar de equipo?'), findsOneWidget);
+    expect(find.text('¿Añadir equipo?'), findsOneWidget);
     expect(
       find.textContaining(
-        'Actualmente perteneces a Equipo X. ¿Quieres salirte para unirte a '
+        'Actualmente perteneces a Equipo X. ¿Quieres unirte también a '
         'Equipo Y?',
       ),
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Cambiar de equipo'));
+    await tester.tap(find.text('Añadir equipo'));
     expect(confirmed, isTrue);
     expect(cancelled, isFalse);
   });

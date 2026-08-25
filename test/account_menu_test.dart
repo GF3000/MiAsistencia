@@ -48,7 +48,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Cuenta'));
     await tester.pumpAndSettle();
-    expect(find.text('Mantienes tu cuenta'), findsOneWidget);
+    expect(find.text('Mantienes tus otros equipos'), findsOneWidget);
     expect(find.text('Salir de esta cuenta'), findsOneWidget);
 
     await tester.tap(find.text('Cerrar sesión'));
@@ -71,12 +71,12 @@ void main() {
 
     await tester.tap(find.byTooltip('Cuenta'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Salir del equipo'));
+    await tester.tap(find.text('Salir de este equipo'));
     await tester.pumpAndSettle();
     expect(
       find.text(
         'Dejarás de ver el calendario y las sesiones de este equipo. '
-        'Tu cuenta seguirá activa y podrás unirte a otro equipo.',
+        'Mantendrás el acceso a tus otros equipos.',
       ),
       findsOneWidget,
     );

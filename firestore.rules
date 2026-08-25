@@ -36,28 +36,20 @@ service cloud.firestore {
         && currentMembership(teamId).active == true;
     }
 
-    // Bridge definition: a user belongs to a team if they have an active V2
-    // membership there OR their legacy profile still points at that team.
+    // Membership-only authorization (Phase 7). The legacy `users.teamId`/
+    // `users.role` mirror is no longer an authorization source: it can be set
+    // by the client to any team, so deriving access from it would let a user
+    // read teams they don't belong to.
     function belongsToTeam(teamId) {
       return currentUserExists()
-        && (
-          currentUser().teamId == teamId
-          || hasActiveMembership(teamId)
-        );
+        && hasActiveMembership(teamId);
     }
 
-    // Bridge definition: role comes from the active membership first, with
-    // the legacy profile role as fallback while old clients are in the field.
     function isTeamCoach(teamId) {
       return currentUserExists()
-        && (
-          (currentUser().teamId == teamId && currentUser().role == 'admin')
-          || (
-            exists(membershipPath(teamId, request.auth.uid))
-            && currentMembership(teamId).active == true
-            && currentMembership(teamId).role == 'admin'
-          )
-        );
+        && exists(membershipPath(teamId, request.auth.uid))
+        && currentMembership(teamId).active == true
+        && currentMembership(teamId).role == 'admin';
     }
 
     function isTeamOwner(teamId, userId) {
@@ -142,10 +134,14 @@ service cloud.firestore {
         ])
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 30
         && request.resource.data.joinCode == teamId
         && request.resource.data.joinCode.matches('^[A-HJ-KM-NP-Z2-9]{6}$')
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if isTeamCoach(teamId)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 30
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.joinCode == resource.data.joinCode;
       allow delete: if isTeamCoach(teamId);
@@ -155,7 +151,8 @@ service cloud.firestore {
       function hasValidInvitationShape() {
         return request.resource.data.keys().hasOnly(['name'])
           && request.resource.data.name is string
-          && request.resource.data.name.size() >= 2;
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 30;
       }
 
       allow get: if true;
@@ -212,7 +209,10 @@ service cloud.firestore {
                 'teamJoinedAt',
                 'role',
                 'attendanceDefaultStatus',
-                'attendanceDefaultHistory'
+                'attendanceDefaultHistory',
+                'activeTeamId',
+                'schemaVersion',
+                'membershipWriteToken'
               ])
             && (
               (
@@ -253,7 +253,7 @@ service cloud.firestore {
               )
               || (
                 resource.data.teamId is string
-                && resource.data.role == 'player'
+                && resource.data.role in ['admin', 'player']
                 && request.resource.data.teamId == null
                 && request.resource.data.get('teamJoinedAt', null) == null
                 && request.resource.data.role == 'player'
@@ -262,7 +262,7 @@ service cloud.firestore {
               )
               || (
                 resource.data.teamId is string
-                && resource.data.role == 'player'
+                && resource.data.role in ['admin', 'player']
                 && request.resource.data.teamId is string
                 && request.resource.data.teamId != resource.data.teamId
                 && request.resource.data.teamJoinedAt == request.time
@@ -270,6 +270,22 @@ service cloud.firestore {
                 && existsAfter(teamPath(request.resource.data.teamId))
                 && request.resource.data.attendanceDefaultStatus == 'attending'
                 && request.resource.data.attendanceDefaultHistory.size() == 0
+              )
+              || (
+                // Multi-team: mirror an active membership the user owns onto
+                // their profile (join another team as a player, or switch the
+                // active team back to one where they hold a coach role).
+                // Uses *After so the membership created in this same batch is
+                // visible.
+                request.auth.uid == userId
+                && request.resource.data.teamId is string
+                && request.resource.data.teamId != resource.data.teamId
+                && request.resource.data.activeTeamId == request.resource.data.teamId
+                && existsAfter(membershipPath(request.resource.data.teamId, request.auth.uid))
+                && getAfter(membershipPath(request.resource.data.teamId, request.auth.uid))
+                    .data.active == true
+                && getAfter(membershipPath(request.resource.data.teamId, request.auth.uid))
+                    .data.role == request.resource.data.role
               )
             )
           )
@@ -283,7 +299,10 @@ service cloud.firestore {
                 'teamJoinedAt',
                 'role',
                 'attendanceDefaultStatus',
-                'attendanceDefaultHistory'
+                'attendanceDefaultHistory',
+                'activeTeamId',
+                'schemaVersion',
+                'membershipWriteToken'
               ])
             && (
               request.resource.data.get('managedByCoach', false) == false
@@ -321,10 +340,12 @@ service cloud.firestore {
       }
 
       // A user can read their own membership(s), and any member of a team can
-      // read that team's roster.
+      // read that team's roster. Reads of a not-yet-existing document are also
+      // allowed so transactions can check whether a membership already exists.
       allow read: if isAuthenticated()
         && (
-          resource.data.memberId == request.auth.uid
+          !exists(/databases/$(database)/documents/teamMemberships/$(membershipId))
+          || resource.data.memberId == request.auth.uid
           || resource.data.userId == request.auth.uid
           || belongsToTeam(resource.data.teamId)
         );

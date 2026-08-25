@@ -38,8 +38,6 @@ enum _JoinOutcome {
   alreadyMember,
   unavailableTeam,
   missingProfile,
-  coachCannotSwitch,
-  switchNotConfirmed,
 }
 
 class TeamRepository {
@@ -175,15 +173,43 @@ class TeamRepository {
 
   // --- Writes -------------------------------------------------------------
 
-  /// Points the user's navigation preference at [teamId]. `activeTeamId` is a
-  /// routing preference, not a membership; this never changes membership.
+  /// Points the user's navigation preference at [teamId] and mirrors the
+  /// legacy single-team fields (`teamId`/`role`/`teamJoinedAt`) onto the
+  /// profile so old, read-only client tabs still show the active team.
+  /// `activeTeamId` is a routing preference, not a membership.
   Future<void> setActiveTeam({
     required String userId,
     required String? teamId,
-  }) {
-    return _firestore.collection('users').doc(userId).update({
-      'activeTeamId': teamId,
-      'membershipWriteToken': _newWriteToken(),
+  }) async {
+    final userReference = _firestore.collection('users').doc(userId);
+    await _firestore.runTransaction((transaction) async {
+      final userSnapshot = await transaction.get(userReference);
+      if (!userSnapshot.exists) {
+        throw const TeamException('No se pudo encontrar tu perfil.');
+      }
+      final update = <String, dynamic>{
+        'activeTeamId': teamId,
+        'schemaVersion': 2,
+        'membershipWriteToken': _newWriteToken(),
+      };
+      if (teamId != null && teamId.isNotEmpty) {
+        final membershipReference = _memberships
+            .doc(teamMembershipDocId(teamId, userId));
+        final membershipSnapshot = await transaction.get(membershipReference);
+        if (!membershipSnapshot.exists) {
+          throw const TeamException('Este equipo ya no está disponible.');
+        }
+        final membership = TeamMembership.fromSnapshot(membershipSnapshot);
+        if (!membership.active) {
+          throw const TeamException('Ya no perteneces a este equipo.');
+        }
+        final joinedAt =
+            membership.currentPeriod?.joinedAt ?? membership.teamMembershipStartedAt;
+        update.addAll(_legacyMirrorFor(membership, joinedAt: joinedAt));
+      } else {
+        update.addAll(_emptyLegacyMirror());
+      }
+      transaction.update(userReference, update);
     });
   }
 
@@ -258,10 +284,13 @@ class TeamRepository {
     );
   }
 
+  /// Adds the user to [code]'s team without disturbing their other
+  /// memberships. If they previously belonged and left, the membership is
+  /// reactivated; otherwise a new player membership is created. The joined
+  /// team becomes the active one.
   Future<void> joinTeam({
     required String code,
     required String userId,
-    bool allowTeamSwitch = false,
   }) async {
     final normalizedCode = normalizeTeamCode(code);
     if (normalizedCode == null) {
@@ -274,7 +303,7 @@ class TeamRepository {
 
     final teamReference = _firestore.collection('teams').doc(team.id);
     final userReference = _firestore.collection('users').doc(userId);
-    final newMembershipReference = _memberships
+    final membershipReference = _memberships
         .doc(teamMembershipDocId(team.id, userId));
     _JoinOutcome? outcome;
     await _firestore.runTransaction((transaction) async {
@@ -292,48 +321,24 @@ class TeamRepository {
       }
 
       final user = AppUser.fromSnapshot(userSnapshot);
-      if (user.teamId == team.id) {
-        outcome = _JoinOutcome.alreadyMember;
-        return;
-      }
-      if (user.hasTeam && user.isCoach) {
-        outcome = _JoinOutcome.coachCannotSwitch;
-        return;
-      }
-      if (user.hasTeam && !allowTeamSwitch) {
-        outcome = _JoinOutcome.switchNotConfirmed;
-        return;
-      }
-
-      // Single-team bridge: close the membership of the team being left.
-      final oldTeamId = user.teamId;
-      if (oldTeamId != null && oldTeamId.isNotEmpty) {
-        final oldMembershipReference = _memberships
-            .doc(teamMembershipDocId(oldTeamId, userId));
-        final oldMembershipSnapshot = await transaction.get(
-          oldMembershipReference,
-        );
-        if (oldMembershipSnapshot.exists) {
-          final old = TeamMembership.fromSnapshot(oldMembershipSnapshot);
+      final membershipSnapshot = await transaction.get(membershipReference);
+      final alreadyActive = membershipSnapshot.exists &&
+          TeamMembership.fromSnapshot(membershipSnapshot).active;
+      if (membershipSnapshot.exists) {
+        final existing = TeamMembership.fromSnapshot(membershipSnapshot);
+        if (!existing.active) {
           transaction.set(
-            oldMembershipReference,
-            _existingMembershipData(old, active: false, closeOpenPeriod: true),
+            membershipReference,
+            _existingMembershipData(
+              existing,
+              active: true,
+              openNewPeriod: true,
+            ),
           );
         }
-      }
-
-      final newMembershipSnapshot = await transaction.get(
-        newMembershipReference,
-      );
-      if (newMembershipSnapshot.exists) {
-        final existing = TeamMembership.fromSnapshot(newMembershipSnapshot);
-        transaction.set(
-          newMembershipReference,
-          _existingMembershipData(existing, active: true, openNewPeriod: true),
-        );
       } else {
         transaction.set(
-          newMembershipReference,
+          membershipReference,
           _newMembershipData(
             teamId: team.id,
             memberId: userId,
@@ -349,6 +354,13 @@ class TeamRepository {
         );
       }
 
+      // Already an active member of the active team: nothing to change.
+      if (alreadyActive && user.activeTeamId == team.id) {
+        outcome = _JoinOutcome.alreadyMember;
+        return;
+      }
+
+      // Make this the active team and mirror it onto the legacy profile.
       transaction.update(userReference, {
         'teamId': team.id,
         'teamJoinedAt': FieldValue.serverTimestamp(),
@@ -360,7 +372,7 @@ class TeamRepository {
         'schemaVersion': 2,
         'membershipWriteToken': _newWriteToken(),
       });
-      outcome = _JoinOutcome.joined;
+      outcome = alreadyActive ? _JoinOutcome.alreadyMember : _JoinOutcome.joined;
     });
 
     switch (outcome) {
@@ -372,67 +384,92 @@ class TeamRepository {
         );
       case _JoinOutcome.missingProfile:
         throw const TeamException('No se pudo encontrar tu perfil.');
-      case _JoinOutcome.coachCannotSwitch:
-        throw const TeamException(
-          'Los entrenadores no pueden cambiar de equipo sin transferir antes '
-          'la gestión del equipo actual.',
-        );
-      case _JoinOutcome.switchNotConfirmed:
-        throw const TeamException(
-          'Confirma primero que quieres abandonar tu equipo actual.',
-        );
       case null:
         throw const TeamException(
-          'No se pudo completar el cambio de equipo. Inténtalo de nuevo.',
+          'No se pudo completar el alta en el equipo. Inténtalo de nuevo.',
         );
     }
   }
 
+  /// Removes the user from [teamId] only: their membership is closed (not
+  /// deleted) and, if it was the active team, another active membership is
+  /// selected deterministically (or the profile is cleared when none remain).
   Future<void> leaveTeam({
     required String teamId,
     required String userId,
   }) async {
     final userReference = _firestore.collection('users').doc(userId);
+    final teamReference = _firestore.collection('teams').doc(teamId);
     final membershipReference = _memberships
         .doc(teamMembershipDocId(teamId, userId));
+
+    // Best-effort list of the user's other active memberships (queried before
+    // the transaction; deterministic document-id order). Used only to reselect
+    // the active team when leaving the currently-active one — the app
+    // self-corrects via `activeMembershipProvider` if this is stale.
+    final candidates = await _memberships
+        .where('userId', isEqualTo: userId)
+        .where('active', isEqualTo: true)
+        .get();
+    final remaining = candidates.docs
+        .map(TeamMembership.fromSnapshot)
+        .where((membership) => membership.teamId != teamId)
+        .toList();
+
     await _firestore.runTransaction((transaction) async {
       final userSnapshot = await transaction.get(userReference);
       if (!userSnapshot.exists) {
         throw const TeamException('No se pudo encontrar tu perfil.');
       }
       final user = AppUser.fromSnapshot(userSnapshot);
-      if (user.teamId != teamId) {
-        throw const TeamException('Ya no perteneces a este equipo.');
-      }
-      if (user.isCoach) {
+
+      final teamSnapshot = await transaction.get(teamReference);
+      if (teamSnapshot.exists &&
+          Team.fromSnapshot(teamSnapshot).createdBy == userId) {
         throw const TeamException(
-          'Los entrenadores no pueden abandonar el equipo desde esta opción.',
+          'El propietario no puede abandonar su equipo.',
         );
       }
 
       final membershipSnapshot = await transaction.get(membershipReference);
-      if (membershipSnapshot.exists) {
-        final membership = TeamMembership.fromSnapshot(membershipSnapshot);
-        transaction.set(
-          membershipReference,
-          _existingMembershipData(
-            membership,
-            active: false,
-            closeOpenPeriod: true,
-          ),
-        );
+      if (!membershipSnapshot.exists) {
+        throw const TeamException('No perteneces a este equipo.');
+      }
+      final membership = TeamMembership.fromSnapshot(membershipSnapshot);
+      if (!membership.active) {
+        throw const TeamException('Ya no perteneces a este equipo.');
       }
 
-      transaction.update(userReference, {
-        'teamId': null,
-        'teamJoinedAt': null,
-        'role': UserRole.player.firestoreValue,
-        'attendanceDefaultStatus': AttendancePresumption.attending.firestoreValue,
-        'attendanceDefaultHistory': [],
-        'activeTeamId': null,
+      transaction.set(
+        membershipReference,
+        _existingMembershipData(
+          membership,
+          active: false,
+          closeOpenPeriod: true,
+        ),
+      );
+
+      final update = <String, dynamic>{
         'schemaVersion': 2,
         'membershipWriteToken': _newWriteToken(),
-      });
+      };
+      if (user.activeTeamId == teamId) {
+        if (remaining.isEmpty) {
+          update.addAll(_emptyLegacyMirror());
+          update['activeTeamId'] = null;
+        } else {
+          final next = remaining.first;
+          update.addAll(
+            _legacyMirrorFor(
+              next,
+              joinedAt:
+                  next.currentPeriod?.joinedAt ?? next.teamMembershipStartedAt,
+            ),
+          );
+          update['activeTeamId'] = next.teamId;
+        }
+      }
+      transaction.update(userReference, update);
     });
   }
 
@@ -721,8 +758,39 @@ class TeamRepository {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
+  Map<String, dynamic> _legacyMirrorFor(
+    TeamMembership membership, {
+    DateTime? joinedAt,
+  }) {
+    return {
+      'teamId': membership.teamId,
+      'teamJoinedAt': joinedAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(joinedAt),
+      'role': membership.role.firestoreValue,
+      'attendanceDefaultStatus':
+          membership.attendancePresumption.firestoreValue,
+      'attendanceDefaultHistory': _historyToWrite(
+        membership.attendancePresumptionHistory,
+      ),
+    };
+  }
+
+  Map<String, dynamic> _emptyLegacyMirror() {
+    return {
+      'teamId': null,
+      'teamJoinedAt': null,
+      'role': UserRole.player.firestoreValue,
+      'attendanceDefaultStatus':
+          AttendancePresumption.attending.firestoreValue,
+      'attendanceDefaultHistory': [],
+    };
+  }
+
   Map<String, dynamic> _openPeriod() {
-    return {'joinedAt': FieldValue.serverTimestamp(), 'leftAt': null};
+    // Use a concrete client-side timestamp here: the web SDK cannot serialize a
+    // `FieldValue.serverTimestamp()` sentinel nested inside `membershipPeriods`.
+    return {'joinedAt': Timestamp.now(), 'leftAt': null};
   }
 
   Map<String, dynamic> _periodToWrite(MembershipPeriod period) {

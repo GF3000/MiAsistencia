@@ -10,9 +10,10 @@ import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({required this.user, super.key});
+  const OnboardingScreen({required this.user, this.initialTab = 0, super.key});
 
   final AppUser user;
+  final int initialTab;
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -28,7 +29,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
   }
 
   @override
@@ -47,15 +52,24 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
       );
       return;
     }
+    if (_teamNameController.text.trim().length > 30) {
+      _showMessage(
+        'El nombre del equipo no puede superar los 30 caracteres.',
+        type: AppNotificationType.warning,
+      );
+      return;
+    }
     await _runTeamAction(
       () => ref
           .read(teamRepositoryProvider)
           .createTeam(name: _teamNameController.text, userId: widget.user.id),
+      successMessage: 'Equipo creado correctamente.',
     );
   }
 
   Future<void> _joinTeam() async {
-    if (_teamCodeController.text.trim().length != 6) {
+    final code = _teamCodeController.text.trim();
+    if (code.length != 6) {
       _showMessage(
         'El código debe tener 6 caracteres.',
         type: AppNotificationType.warning,
@@ -65,14 +79,25 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
     await _runTeamAction(
       () => ref
           .read(teamRepositoryProvider)
-          .joinTeam(code: _teamCodeController.text, userId: widget.user.id),
+          .joinTeam(code: code, userId: widget.user.id),
+      successMessage: 'Te has unido al equipo.',
     );
   }
 
-  Future<void> _runTeamAction(Future<void> Function() action) async {
+  Future<void> _runTeamAction(
+    Future<void> Function() action, {
+    required String successMessage,
+  }) async {
     setState(() => _busy = true);
     try {
       await action();
+      if (!mounted) {
+        return;
+      }
+      _showMessage(successMessage, type: AppNotificationType.success);
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
     } on TeamException catch (error) {
       _showMessage(error.message);
     } on FirebaseException {
@@ -184,9 +209,11 @@ class _CreateTeamPanel extends StatelessWidget {
             TextField(
               controller: controller,
               textCapitalization: TextCapitalization.words,
+              maxLength: 30,
               decoration: const InputDecoration(
                 labelText: 'Nombre del equipo',
                 hintText: 'Ej. Halcones Senior',
+                counterText: '',
               ),
             ),
             const SizedBox(height: 16),

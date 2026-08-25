@@ -17,6 +17,7 @@ import '../widgets/player_motivation_kpis.dart';
 import '../widgets/player_attendance_table.dart';
 import '../widgets/session_view_switcher.dart';
 import '../widgets/team_calendar.dart';
+import '../widgets/team_selector.dart';
 import 'batch_attendance_screen.dart';
 import 'batch_edit_sessions_screen.dart';
 import 'create_session_screen.dart';
@@ -46,7 +47,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mi Asistencia'),
+        title: TeamDropdown(
+          membership: user,
+          teamName: teamState.value?.name ?? 'Mi Asistencia',
+        ),
         actions: [
           if (user.isCoach)
             IconButton(
@@ -84,8 +88,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   child: _AccountMenuAction(
                     icon: Icons.group_remove_outlined,
                     color: Color(0xFFB45309),
-                    title: 'Salir del equipo',
-                    description: 'Mantienes tu cuenta',
+                    title: 'Salir de este equipo',
+                    description: 'Mantienes tus otros equipos',
                   ),
                 ),
                 const PopupMenuDivider(),
@@ -435,11 +439,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final confirmed = await _confirmAccountAction(
       icon: Icons.group_remove_outlined,
       color: const Color(0xFFB45309),
-      title: 'Salir del equipo',
+      title: 'Salir de este equipo',
       message:
           'Dejarás de ver el calendario y las sesiones de este equipo. '
-          'Tu cuenta seguirá activa y podrás unirte a otro equipo.',
-      confirmLabel: 'Salir del equipo',
+          'Mantendrás el acceso a tus otros equipos.',
+      confirmLabel: 'Salir de este equipo',
     );
     if (confirmed != true || !mounted) {
       return;
