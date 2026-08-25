@@ -13,6 +13,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/teams/$(teamId);
     }
 
+    function membershipPath(teamId, memberId) {
+      return /databases/$(database)/documents/teamMemberships/$(teamId + '__' + memberId);
+    }
+
     function currentUserExists() {
       return isAuthenticated() && exists(userPath(request.auth.uid));
     }
@@ -21,12 +25,39 @@ service cloud.firestore {
       return get(userPath(request.auth.uid)).data;
     }
 
-    function belongsToTeam(teamId) {
-      return currentUserExists() && currentUser().teamId == teamId;
+    // --- Membership-aware helpers (Phase 3 bridge) -------------------------
+
+    function currentMembership(teamId) {
+      return get(membershipPath(teamId, request.auth.uid)).data;
     }
 
+    function hasActiveMembership(teamId) {
+      return exists(membershipPath(teamId, request.auth.uid))
+        && currentMembership(teamId).active == true;
+    }
+
+    // Bridge definition: a user belongs to a team if they have an active V2
+    // membership there OR their legacy profile still points at that team.
+    function belongsToTeam(teamId) {
+      return currentUserExists()
+        && (
+          currentUser().teamId == teamId
+          || hasActiveMembership(teamId)
+        );
+    }
+
+    // Bridge definition: role comes from the active membership first, with
+    // the legacy profile role as fallback while old clients are in the field.
     function isTeamCoach(teamId) {
-      return belongsToTeam(teamId) && currentUser().role == 'admin';
+      return currentUserExists()
+        && (
+          (currentUser().teamId == teamId && currentUser().role == 'admin')
+          || (
+            exists(membershipPath(teamId, request.auth.uid))
+            && currentMembership(teamId).active == true
+            && currentMembership(teamId).role == 'admin'
+          )
+        );
     }
 
     function isTeamOwner(teamId, userId) {
@@ -49,6 +80,26 @@ service cloud.firestore {
         && data.get('attendanceDefaultStatus', 'attending')
           in ['attending', 'absent']
         && data.get('attendanceDefaultHistory', []) is list;
+    }
+
+    function hasValidMembershipShape(data) {
+      return data.teamId is string
+        && data.memberId is string
+        && data.fullName is string
+        && data.fullName.size() >= 2
+        && data.email is string
+        && data.role in ['admin', 'player']
+        && data.active is bool
+        && data.get('managedByCoach', false) is bool
+        && (data.userId == null || data.userId is string)
+        && data.get('membershipPeriods', []) is list
+        && data.get('attendanceDefaultStatus', 'attending')
+          in ['attending', 'absent']
+        && data.get('attendanceDefaultHistory', []) is list
+        && (
+          data.get('migrationVersion', null) == null
+          || data.get('migrationVersion', null) is int
+        );
     }
 
     function hasValidAttendanceShape(data) {
@@ -261,6 +312,93 @@ service cloud.firestore {
         && resource.data.teamId is string
         && resource.data.get('managedByCoach', false) == true
         && isTeamCoach(resource.data.teamId);
+    }
+
+    match /teamMemberships/{membershipId} {
+      function hasMatchingId() {
+        return request.resource.data.teamId + '__' + request.resource.data.memberId
+          == membershipId;
+      }
+
+      // A user can read their own membership(s), and any member of a team can
+      // read that team's roster.
+      allow read: if isAuthenticated()
+        && (
+          resource.data.memberId == request.auth.uid
+          || resource.data.userId == request.auth.uid
+          || belongsToTeam(resource.data.teamId)
+        );
+
+      allow create: if isAuthenticated()
+        && hasValidMembershipShape(request.resource.data)
+        && hasMatchingId()
+        && (
+          (
+            // Self-join as a player via a valid team code.
+            request.resource.data.memberId == request.auth.uid
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.role == 'player'
+            && request.resource.data.managedByCoach == false
+            && exists(teamPath(request.resource.data.teamId))
+            && get(teamPath(request.resource.data.teamId)).data.joinCode
+              == request.resource.data.teamId
+          )
+          || (
+            // Owner creating their own admin membership during createTeam.
+            request.resource.data.memberId == request.auth.uid
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.role == 'admin'
+            && request.resource.data.managedByCoach == false
+            && existsAfter(teamPath(request.resource.data.teamId))
+            && getAfter(teamPath(request.resource.data.teamId)).data.createdBy
+              == request.auth.uid
+          )
+          || (
+            // Coach creating a managed player (no account).
+            request.resource.data.memberId != request.auth.uid
+            && request.resource.data.userId == null
+            && request.resource.data.role == 'player'
+            && request.resource.data.managedByCoach == true
+            && isTeamCoach(request.resource.data.teamId)
+          )
+        );
+
+      allow update: if isAuthenticated()
+        && hasValidMembershipShape(request.resource.data)
+        && request.resource.data.teamId == resource.data.teamId
+        && request.resource.data.memberId == resource.data.memberId
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.get('managedByCoach', false)
+          == resource.data.get('managedByCoach', false)
+        && (
+          (
+            // A coach managing a roster member (never the owner, never self).
+            isTeamCoach(resource.data.teamId)
+            && request.auth.uid != resource.data.memberId
+            && !isTeamOwner(resource.data.teamId, resource.data.memberId)
+            && (
+              resource.data.get('managedByCoach', false) == false
+              || request.resource.data.role == 'player'
+            )
+          )
+          || (
+            // A member deactivating their own membership (leaving the team).
+            request.auth.uid == resource.data.memberId
+            && request.resource.data.fullName == resource.data.fullName
+            && request.resource.data.email == resource.data.email
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.get('attendanceDefaultStatus', 'attending')
+              == resource.data.get('attendanceDefaultStatus', 'attending')
+            && request.resource.data.get('attendanceDefaultHistory', [])
+              == resource.data.get('attendanceDefaultHistory', [])
+          )
+        );
+
+      allow delete: if isAuthenticated()
+        && isTeamCoach(resource.data.teamId)
+        && resource.data.get('managedByCoach', false) == true
+        && resource.data.memberId != request.auth.uid
+        && !isTeamOwner(resource.data.teamId, resource.data.memberId);
     }
 
     match /sessions/{sessionId} {
