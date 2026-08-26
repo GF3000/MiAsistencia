@@ -2,17 +2,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
-import '../models/app_user.dart';
 import '../providers.dart';
 import '../repositories/team_repository.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
+import '../widgets/async_state_view.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({required this.user, this.initialTab = 0, super.key});
+  const OnboardingScreen({this.initialTab = 0, super.key});
 
-  final AppUser user;
   final int initialTab;
 
   @override
@@ -45,6 +45,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
   }
 
   Future<void> _createTeam() async {
+    final user = ref.read(currentAppUserProvider);
+    if (user == null) {
+      return;
+    }
     if (_teamNameController.text.trim().length < 2) {
       _showMessage(
         'Escribe el nombre del equipo.',
@@ -62,12 +66,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
     await _runTeamAction(
       () => ref
           .read(teamRepositoryProvider)
-          .createTeam(name: _teamNameController.text, userId: widget.user.id),
+          .createTeam(name: _teamNameController.text, userId: user.id),
       successMessage: 'Equipo creado correctamente.',
     );
   }
 
   Future<void> _joinTeam() async {
+    final user = ref.read(currentAppUserProvider);
+    if (user == null) {
+      return;
+    }
     final code = _teamCodeController.text.trim();
     if (code.length != 6) {
       _showMessage(
@@ -79,7 +87,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
     await _runTeamAction(
       () => ref
           .read(teamRepositoryProvider)
-          .joinTeam(code: code, userId: widget.user.id),
+          .joinTeam(code: code, userId: user.id),
       successMessage: 'Te has unido al equipo.',
     );
   }
@@ -95,8 +103,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
         return;
       }
       _showMessage(successMessage, type: AppNotificationType.success);
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/');
       }
     } on TeamException catch (error) {
       _showMessage(error.message);
@@ -120,6 +130,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
 
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(currentAppUserProvider);
+    if (user == null) {
+      return const AppLoadingView();
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Configura tu equipo'),
@@ -137,7 +151,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '¡Hola, ${widget.user.fullName.split(' ').first}!',
+              '¡Hola, ${user.fullName.split(' ').first}!',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),

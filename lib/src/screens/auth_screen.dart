@@ -369,13 +369,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 }
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
-  const ProfileSetupScreen({
-    required this.firebaseUser,
-    this.invitationCode,
-    super.key,
-  });
+  const ProfileSetupScreen({this.invitationCode, super.key});
 
-  final User firebaseUser;
   final String? invitationCode;
 
   @override
@@ -390,7 +385,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(
-      text: widget.firebaseUser.displayName ?? '',
+      text: ref.read(currentFirebaseUserProvider)?.displayName ?? '',
     );
   }
 
@@ -411,10 +406,14 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     }
     setState(() => _busy = true);
     try {
+      final firebaseUser = ref.read(currentFirebaseUserProvider);
+      if (firebaseUser == null) {
+        return;
+      }
       await ref
           .read(authRepositoryProvider)
           .createProfile(
-            user: widget.firebaseUser,
+            user: firebaseUser,
             fullName: _nameController.text,
           );
     } on FirebaseException {

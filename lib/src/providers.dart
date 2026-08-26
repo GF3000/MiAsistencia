@@ -74,6 +74,26 @@ final membershipProvider = StreamProvider.family<
       .watch(teamRepositoryProvider)
       .watchMembership(key.teamId, key.memberId),
 );
+final currentFirebaseUserProvider = Provider<User?>((ref) {
+  return ref.watch(authStateProvider).value;
+});
+
+final currentAppUserProvider = Provider<AppUser?>((ref) {
+  final user = ref.watch(currentFirebaseUserProvider);
+  if (user == null) {
+    return null;
+  }
+  return ref.watch(userProfileProvider(user.uid)).value;
+});
+
+final currentMembershipProvider = Provider<TeamMembership?>((ref) {
+  final appUser = ref.watch(currentAppUserProvider);
+  if (appUser == null) {
+    return null;
+  }
+  return ref.watch(activeMembershipProvider(appUser.id)).value;
+});
+
 final activeMembershipProvider = Provider.family<AsyncValue<TeamMembership?>, String>(
   (ref, userId) {
     final memberships = ref.watch(membershipsForUserProvider(userId));
