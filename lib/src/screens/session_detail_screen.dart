@@ -234,7 +234,7 @@ class _SessionHeader extends StatelessWidget {
             Text(session.title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              formatSpanishDate(session.startTime),
+              formatRelativeDate(session.startTime),
               style: const TextStyle(fontSize: 16),
             ),
             const SizedBox(height: 4),
