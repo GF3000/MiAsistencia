@@ -464,9 +464,9 @@ service cloud.firestore {
         }
 
         function targetIsPlayer() {
-          return exists(userPath(userId))
-            && get(userPath(userId)).data.role == 'player'
-            && get(userPath(userId)).data.teamId == parentSession().teamId;
+          return exists(membershipPath(parentSession().teamId, userId))
+            && get(membershipPath(parentSession().teamId, userId)).data.active == true
+            && get(membershipPath(parentSession().teamId, userId)).data.role == 'player';
         }
 
         allow read: if belongsToTeam(parentSession().teamId);
