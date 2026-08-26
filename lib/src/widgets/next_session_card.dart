@@ -72,7 +72,7 @@ class NextSessionCard extends ConsumerWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${formatSpanishDate(session.startTime)} · '
+                          '${formatRelativeDate(session.startTime)} · '
                           '${formatTime(context, session.startTime)} – '
                           '${formatTime(context, session.endTime)}',
                           style: TextStyle(color: Colors.blueGrey.shade700),

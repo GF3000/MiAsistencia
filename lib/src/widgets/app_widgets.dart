@@ -123,6 +123,21 @@ String formatSpanishDate(DateTime date) {
       '${months[date.month - 1]}';
 }
 
+String formatRelativeDate(DateTime date) {
+  final local = date.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final target = DateTime(local.year, local.month, local.day);
+  final differenceInDays = target.difference(today).inDays;
+  if (differenceInDays == 0) {
+    return 'hoy';
+  }
+  if (differenceInDays == 1) {
+    return 'mañana';
+  }
+  return formatSpanishDate(local);
+}
+
 String formatSpanishMonth(DateTime date) {
   const months = [
     'enero',

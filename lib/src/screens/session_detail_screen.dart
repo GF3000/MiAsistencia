@@ -482,7 +482,7 @@ class _PlayerAttendancePanelState
   }
 }
 
-class _CoachAttendancePanel extends ConsumerWidget {
+class _CoachAttendancePanel extends ConsumerStatefulWidget {
   const _CoachAttendancePanel({
     required this.session,
     required this.currentUser,
@@ -492,7 +492,18 @@ class _CoachAttendancePanel extends ConsumerWidget {
   final TeamRosterMember currentUser;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CoachAttendancePanel> createState() =>
+      _CoachAttendancePanelState();
+}
+
+class _CoachAttendancePanelState
+    extends ConsumerState<_CoachAttendancePanel> {
+  AttendanceStatus? _selectedStatus;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = widget.session;
+    final currentUser = widget.currentUser;
     final teamRepository = ref.watch(teamRepositoryProvider);
     final attendanceRepository = ref.watch(attendanceRepositoryProvider);
     return StreamBuilder<List<TeamRosterMember>>(
@@ -521,6 +532,14 @@ class _CoachAttendancePanel extends ConsumerWidget {
                       sessionTime: session.startTime,
                     ),
             };
+            final visibleMembers = _selectedStatus == null
+                ? members
+                : members
+                      .where(
+                        (member) =>
+                            attendance[member.id]!.status == _selectedStatus,
+                      )
+                      .toList();
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -529,10 +548,18 @@ class _CoachAttendancePanel extends ConsumerWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
-                _AttendanceSummary(attendance: attendance.values),
+                _AttendanceSummary(
+                  attendance: attendance.values,
+                  selectedStatus: _selectedStatus,
+                  onStatusSelected: (status) =>
+                      setState(() => _selectedStatus = status),
+                ),
                 const SizedBox(height: 22),
                 Text(
-                  'Plantilla (${members.length})',
+                  _selectedStatus == null
+                      ? 'Plantilla (${members.length})'
+                      : 'Plantilla (${visibleMembers.length} '
+                            'de ${members.length})',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
@@ -542,8 +569,14 @@ class _CoachAttendancePanel extends ConsumerWidget {
                     title: 'Plantilla vacía',
                     message: 'Comparte el código para añadir jugadores.',
                   )
+                else if (visibleMembers.isEmpty)
+                  const EmptyState(
+                    icon: Icons.filter_alt_off_outlined,
+                    title: 'Sin jugadores',
+                    message: 'Ningún jugador tiene este estado de asistencia.',
+                  )
                 else
-                  ...members.map((member) {
+                  ...visibleMembers.map((member) {
                     final record = attendance[member.id]!;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
@@ -585,11 +618,23 @@ class _CoachAttendancePanel extends ConsumerWidget {
   }
 
   String _formatUpdatedAt(DateTime updatedAt) {
-    final day = updatedAt.day.toString().padLeft(2, '0');
-    final month = updatedAt.month.toString().padLeft(2, '0');
-    final hour = updatedAt.hour.toString().padLeft(2, '0');
-    final minute = updatedAt.minute.toString().padLeft(2, '0');
-    return 'Actualizado el $day/$month a las $hour:$minute';
+    final local = updatedAt.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final updatedDay = DateTime(local.year, local.month, local.day);
+    final differenceInDays = today.difference(updatedDay).inDays;
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    final time = '$hour:$minute';
+    if (differenceInDays == 0) {
+      return 'Actualizado hoy a las $time';
+    }
+    if (differenceInDays == 1) {
+      return 'Actualizado ayer a las $time';
+    }
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    return 'Actualizado el $day/$month a las $time';
   }
 }
 
@@ -649,9 +694,15 @@ class CoachAttendanceListItem extends StatelessWidget {
 }
 
 class _AttendanceSummary extends StatelessWidget {
-  const _AttendanceSummary({required this.attendance});
+  const _AttendanceSummary({
+    required this.attendance,
+    required this.selectedStatus,
+    required this.onStatusSelected,
+  });
 
   final Iterable<AttendanceRecord> attendance;
+  final AttendanceStatus? selectedStatus;
+  final ValueChanged<AttendanceStatus?> onStatusSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -665,9 +716,13 @@ class _AttendanceSummary extends StatelessWidget {
       children: AttendanceStatus.values
           .where((status) => counts[status]! > 0)
           .map(
-            (status) => Chip(
-              avatar: Icon(status.icon, size: 18, color: status.color),
-              label: Text('${status.coachLabel}: ${counts[status]}'),
+            (status) => AttendanceStatusChip(
+              selected: status == selectedStatus,
+              status: status,
+              label: '${status.coachLabel}: ${counts[status]}',
+              onSelected: (_) => onStatusSelected(
+                status == selectedStatus ? null : status,
+              ),
             ),
           )
           .toList(),

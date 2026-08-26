@@ -869,7 +869,7 @@ class _SessionCard extends ConsumerWidget {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          formatSpanishDate(session.startTime),
+                          formatRelativeDate(session.startTime),
                           style: TextStyle(color: Colors.blueGrey.shade700),
                         ),
                         const SizedBox(height: 3),

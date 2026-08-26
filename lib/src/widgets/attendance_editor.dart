@@ -216,7 +216,7 @@ class PlayerAttendanceChoices extends StatelessWidget {
       runSpacing: 8,
       children: AttendanceStatus.playerOptions.map((status) {
         final saving = savingStatus == status;
-        return _AttendanceStatusChip(
+        return AttendanceStatusChip(
           key: ValueKey('player-status-${status.firestoreValue}'),
           status: status,
           label: status.playerLabel,
@@ -231,8 +231,8 @@ class PlayerAttendanceChoices extends StatelessWidget {
   }
 }
 
-class _AttendanceStatusChip extends StatelessWidget {
-  const _AttendanceStatusChip({
+class AttendanceStatusChip extends StatelessWidget {
+  const AttendanceStatusChip({
     required this.status,
     required this.label,
     required this.selected,
@@ -426,7 +426,7 @@ class _StatusChoices extends StatelessWidget {
       runSpacing: 10,
       children: statuses
           .map(
-            (status) => _AttendanceStatusChip(
+            (status) => AttendanceStatusChip(
               status: status,
               label: status.labelFor(perspective),
               selected: selected == status,
