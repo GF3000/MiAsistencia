@@ -41,6 +41,7 @@ dependencies:
   cloud_firestore: ^6.8.0
   flutter_riverpod: ^3.4.2
   go_router: ^17.5.0
+  qr_flutter: ^4.1.0
   web: 1.1.1
 
 dev_dependencies:

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/app_user.dart';
 import '../models/team_membership.dart';
@@ -202,6 +203,14 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                     letterSpacing: 7,
                     color: AppTheme.primary,
                   ),
+                ),
+                const SizedBox(height: 18),
+                QrImageView(
+                  data: buildTeamInviteUrl(team.joinCode),
+                  version: QrVersions.auto,
+                  size: 180,
+                  backgroundColor: Colors.white,
+                  padding: const EdgeInsets.all(8),
                 ),
                 const SizedBox(height: 18),
                 const Text(
