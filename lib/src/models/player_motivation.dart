@@ -210,6 +210,12 @@ TeamAttendanceTrend buildTeamAttendanceTrend({
     var late = 0;
     for (final session in periodSessions) {
       for (final player in players) {
+        if (isPresumedAbsentAt(
+          member: player,
+          sessionTime: session.startTime,
+        )) {
+          continue;
+        }
         final status = _resolvedStatus(
           player: player,
           session: session,
@@ -278,6 +284,12 @@ PlayerRanking? _buildRanking({
         var score = 0;
         var eligible = 0;
         for (final session in sessions) {
+          if (isPresumedAbsentAt(
+            member: player,
+            sessionTime: session.startTime,
+          )) {
+            continue;
+          }
           final status = _resolvedStatus(
             player: player,
             session: session,
@@ -407,6 +419,12 @@ _AttendancePercentage _playerAttendancePercentage({
   var attended = 0;
   var eligible = 0;
   for (final session in sessions) {
+    if (isPresumedAbsentAt(
+      member: player,
+      sessionTime: session.startTime,
+    )) {
+      continue;
+    }
     final status = _resolvedStatus(
       player: player,
       session: session,

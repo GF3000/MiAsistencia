@@ -338,7 +338,8 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
             child: Text(
               'Físico incluye asistencias, retrasos y solo físico. '
               'Pista incluye asistencias y solo pista. El porcentaje excluye '
-              'lesiones y sesiones anteriores al alta del jugador.',
+              'lesiones, sesiones anteriores al alta del jugador y sesiones '
+              'con presunción de no asistencia.',
               style: TextStyle(
                 color: Colors.blueGrey.shade600,
                 fontSize: 12,

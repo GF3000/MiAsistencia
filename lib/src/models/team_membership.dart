@@ -76,6 +76,16 @@ AttendancePresumption resolveAttendancePresumptionAt({
   return ordered.isEmpty ? base : resolved;
 }
 
+/// Whether [member] was presumed absent (i.e. not expected to attend) at
+/// [sessionTime]. Such sessions are excluded from attendance percentages.
+bool isPresumedAbsentAt({
+  required TeamRosterMember member,
+  required DateTime sessionTime,
+}) {
+  return member.attendancePresumptionAt(sessionTime) ==
+      AttendancePresumption.absent;
+}
+
 /// A single continuous span of membership in a team, using
 /// `[joinedAt, leftAt)` semantics: [joinedAt] is inclusive, [leftAt] is
 /// exclusive. An open (current) period has a null [leftAt].

@@ -309,6 +309,12 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
   var injuryCount = 0;
 
   for (final session in sessions) {
+    if (isPresumedAbsentAt(
+      member: player,
+      sessionTime: session.startTime,
+    )) {
+      continue;
+    }
     final status = resolveAttendanceStatus(
       user: player,
       explicitRecord: attendanceBySession[session.id]?[player.id],
