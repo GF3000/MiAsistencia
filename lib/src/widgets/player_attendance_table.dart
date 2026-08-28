@@ -176,6 +176,7 @@ class PlayerAttendanceTable extends StatefulWidget {
 class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
   int _sortColumnIndex = 0;
   bool _sortAscending = true;
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context) {
@@ -186,38 +187,72 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-            child: Row(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: const Icon(
-                    Icons.analytics_outlined,
-                    color: AppTheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Histórico del equipo',
-                        style: Theme.of(context).textTheme.titleMedium,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(13),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.loadedSessionCount == widget.totalSessionCount
-                            ? '${widget.totalSessionCount} sesiones finalizadas'
-                            : 'Cargando historial: ${widget.loadedSessionCount} '
+                      child: const Icon(
+                        Icons.analytics_outlined,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Histórico del equipo',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.loadedSessionCount == widget.totalSessionCount
+                              ? '${widget.totalSessionCount} sesiones finalizadas'
+                              : 'Cargando historial: ${widget.loadedSessionCount} '
                                   'de ${widget.totalSessionCount} sesiones',
-                        style: TextStyle(color: Colors.blueGrey.shade600),
-                      ),
-                    ],
+                          style: TextStyle(color: Colors.blueGrey.shade600),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                SizedBox(
+                  width: 220,
+                  child: TextField(
+                    key: const ValueKey('player-attendance-search'),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar jugador',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchQuery.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Limpiar búsqueda',
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  _searchQuery = '';
+                                });
+                              },
+                            ),
+                      isDense: true,
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
                   ),
                 ),
                 PopupMenuButton<_AttendanceCsvExport>(
@@ -260,79 +295,106 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
               minHeight: 3,
             ),
           const Divider(height: 1),
-          Scrollbar(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                key: const ValueKey('player-attendance-table'),
-                headingRowColor: WidgetStatePropertyAll(
-                  AppTheme.primary.withValues(alpha: 0.07),
-                ),
-                horizontalMargin: 20,
-                columnSpacing: 26,
-                sortColumnIndex: _sortColumnIndex,
-                sortAscending: _sortAscending,
-                columns: [
-                  _sortableColumn(0, 'Jugador'),
-                  _sortableColumn(1, 'Asistencia %', numeric: true),
-                  _sortableColumn(2, 'Sesiones', numeric: true),
-                  _sortableColumn(3, 'Asistencias', numeric: true),
-                  _sortableColumn(4, 'Retrasos', numeric: true),
-                  _sortableColumn(5, 'Físico', numeric: true),
-                  _sortableColumn(6, 'Pista', numeric: true),
-                  _sortableColumn(7, 'Faltas', numeric: true),
-                  _sortableColumn(8, 'Lesiones', numeric: true),
+          if (sortedRows.isEmpty && widget.rows.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.search_off_outlined,
+                    size: 40,
+                    color: Colors.blueGrey.shade400,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No se encontraron jugadores',
+                    style: Theme.of(context).textTheme.titleMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'No hay jugadores cuyo nombre coincida con '
+                    '"$_searchQuery".',
+                    style: TextStyle(color: Colors.blueGrey.shade600),
+                    textAlign: TextAlign.center,
+                  ),
                 ],
-                rows: sortedRows
-                    .map(
-                      (row) => DataRow(
-                        cells: [
-                          DataCell(
-                            SizedBox(
-                              width: 180,
-                              child: Text(
-                                row.player.fullName,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppTheme.navy,
-                                  fontWeight: FontWeight.w800,
+              ),
+            )
+          else
+            Scrollbar(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  key: const ValueKey('player-attendance-table'),
+                  headingRowColor: WidgetStatePropertyAll(
+                    AppTheme.primary.withValues(alpha: 0.07),
+                  ),
+                  horizontalMargin: 20,
+                  columnSpacing: 26,
+                  sortColumnIndex: _sortColumnIndex,
+                  sortAscending: _sortAscending,
+                  columns: [
+                    _sortableColumn(0, 'Jugador'),
+                    _sortableColumn(1, 'Asistencia %', numeric: true),
+                    _sortableColumn(2, 'Sesiones', numeric: true),
+                    _sortableColumn(3, 'Asistencias', numeric: true),
+                    _sortableColumn(4, 'Retrasos', numeric: true),
+                    _sortableColumn(5, 'Físico', numeric: true),
+                    _sortableColumn(6, 'Pista', numeric: true),
+                    _sortableColumn(7, 'Faltas', numeric: true),
+                    _sortableColumn(8, 'Lesiones', numeric: true),
+                  ],
+                  rows: sortedRows
+                      .map(
+                        (row) => DataRow(
+                          cells: [
+                            DataCell(
+                              SizedBox(
+                                width: 180,
+                                child: Text(
+                                  row.player.fullName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppTheme.navy,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          _percentageCell(row),
-                          _numberCell(row.stats.sessionCount),
-                          _numberCell(
-                            row.stats.attendanceCount,
-                            color: AppTheme.primary,
-                          ),
-                          _numberCell(
-                            row.stats.lateCount,
-                            color: const Color(0xFFB76505),
-                          ),
-                          _numberCell(
-                            row.stats.physicalCount,
-                            color: const Color(0xFF7650A8),
-                          ),
-                          _numberCell(
-                            row.stats.courtCount,
-                            color: const Color(0xFF2563A5),
-                          ),
-                          _numberCell(
-                            row.stats.absenceCount,
-                            color: const Color(0xFF5C6670),
-                          ),
-                          _numberCell(
-                            row.stats.injuryCount,
-                            color: const Color(0xFFC2413B),
-                          ),
-                        ],
-                      ),
-                    )
-                    .toList(),
+                            _percentageCell(row),
+                            _numberCell(row.stats.sessionCount),
+                            _numberCell(
+                              row.stats.attendanceCount,
+                              color: AppTheme.primary,
+                            ),
+                            _numberCell(
+                              row.stats.lateCount,
+                              color: const Color(0xFFB76505),
+                            ),
+                            _numberCell(
+                              row.stats.physicalCount,
+                              color: const Color(0xFF7650A8),
+                            ),
+                            _numberCell(
+                              row.stats.courtCount,
+                              color: const Color(0xFF2563A5),
+                            ),
+                            _numberCell(
+                              row.stats.absenceCount,
+                              color: const Color(0xFF5C6670),
+                            ),
+                            _numberCell(
+                              row.stats.injuryCount,
+                              color: const Color(0xFFC2413B),
+                            ),
+                          ],
+                        ),
+                      )
+                      .toList(),
+                ),
               ),
             ),
-          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
             child: Text(
@@ -394,8 +456,20 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
     );
   }
 
+  List<PlayerAttendanceTableRow> _filteredRows() {
+    final query = _searchQuery.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      return [...widget.rows];
+    }
+
+    return widget.rows.where((row) {
+      return row.player.fullName.toLowerCase().contains(query);
+    }).toList();
+  }
+
   List<PlayerAttendanceTableRow> _sortedRows() {
-    final sorted = [...widget.rows];
+    final sorted = _filteredRows();
     sorted.sort((left, right) {
       if (_sortColumnIndex == 1) {
         final percentageComparison = _comparePercentages(

@@ -414,6 +414,373 @@ void main() {
       contains('24/08/2026 19:00,Entrenamiento,No asiste,Asiste'),
     );
   });
+
+  testWidgets('filters players by name', (
+    tester
+  ) async {
+    const ana = AppUser(
+      id: 'ana',
+      email: 'ana@example.com',
+      fullName: 'Ana García',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const bea = AppUser(
+      id: 'bea',
+      email: 'bea@example.com',
+      fullName: 'Beatriz López',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const anaStats = PlayerAttendanceStats(
+      userId: 'ana',
+      sessionCount: 10,
+      eligibleSessionCount: 10,
+      attendedSessionCount: 9,
+      attendanceCount: 8,
+      lateCount: 1,
+      physicalCount: 9,
+      courtCount: 8,
+      absenceCount: 1,
+      injuryCount: 0,
+    );
+
+    const beaStats = PlayerAttendanceStats(
+      userId: 'bea',
+      sessionCount: 10,
+      eligibleSessionCount: 10,
+      attendedSessionCount: 7,
+      attendanceCount: 6,
+      lateCount: 1,
+      physicalCount: 7,
+      courtCount: 6,
+      absenceCount: 3,
+      injuryCount: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: PlayerAttendanceTable(
+            loadedSessionCount: 10,
+            totalSessionCount: 10,
+            rows: const [
+              PlayerAttendanceTableRow(player: ana, stats: anaStats),
+              PlayerAttendanceTableRow(player: bea, stats: beaStats),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Ana García'), findsOneWidget);
+    expect(find.text('Beatriz López'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'ana',
+    );
+    await tester.pump();
+
+    expect(find.text('Ana García'), findsOneWidget);
+    expect(find.text('Beatriz López'), findsNothing);
+  });
+
+  testWidgets('player search is case insensitive', (
+    tester
+  ) async {
+    const player = AppUser(
+      id: 'ana',
+      email: 'ana@example.com',
+      fullName: 'Ana García',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const stats = PlayerAttendanceStats(
+      userId: 'ana',
+      sessionCount: 10,
+      eligibleSessionCount: 10,
+      attendedSessionCount: 9,
+      attendanceCount: 8,
+      lateCount: 1,
+      physicalCount: 9,
+      courtCount: 8,
+      absenceCount: 1,
+      injuryCount: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: PlayerAttendanceTable(
+            loadedSessionCount: 10,
+            totalSessionCount: 10,
+            rows: const [
+              PlayerAttendanceTableRow(player: player, stats: stats),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'ANA',
+    );
+    await tester.pump();
+
+    expect(find.text('Ana García'), findsOneWidget);
+  });
+
+  testWidgets('player search is case insensitive', (
+    tester
+  ) async {
+    const player = AppUser(
+      id: 'ana',
+      email: 'ana@example.com',
+      fullName: 'Ana García',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const stats = PlayerAttendanceStats(
+      userId: 'ana',
+      sessionCount: 10,
+      eligibleSessionCount: 10,
+      attendedSessionCount: 9,
+      attendanceCount: 8,
+      lateCount: 1,
+      physicalCount: 9,
+      courtCount: 8,
+      absenceCount: 1,
+      injuryCount: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: PlayerAttendanceTable(
+            loadedSessionCount: 10,
+            totalSessionCount: 10,
+            rows: const [
+              PlayerAttendanceTableRow(player: player, stats: stats),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'ANA',
+    );
+    await tester.pump();
+
+    expect(find.text('Ana García'), findsOneWidget);
+  });
+  testWidgets('shows an empty state when search has no matches', (
+    tester,
+  ) async {
+    const player = AppUser(
+      id: 'ana',
+      email: 'ana@example.com',
+      fullName: 'Ana García',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const stats = PlayerAttendanceStats(
+      userId: 'ana',
+      sessionCount: 10,
+      eligibleSessionCount: 10,
+      attendedSessionCount: 9,
+      attendanceCount: 8,
+      lateCount: 1,
+      physicalCount: 9,
+      courtCount: 8,
+      absenceCount: 1,
+      injuryCount: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: PlayerAttendanceTable(
+            loadedSessionCount: 10,
+            totalSessionCount: 10,
+            rows: const [
+              PlayerAttendanceTableRow(player: player, stats: stats),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'zzzz',
+    );
+    await tester.pump();
+
+    expect(find.text('No se encontraron jugadores'), findsOneWidget);
+    expect(
+      find.text('No hay jugadores cuyo nombre coincida con "zzzz".'),
+      findsOneWidget,
+    );
+    expect(find.text('Ana García'), findsNothing);
+  });
+
+  testWidgets('clears the player search', (
+    tester
+  ) async {
+    const player = AppUser(
+      id: 'ana',
+      email: 'ana@example.com',
+      fullName: 'Ana García',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const stats = PlayerAttendanceStats(
+      userId: 'ana',
+      sessionCount: 10,
+      eligibleSessionCount: 10,
+      attendedSessionCount: 9,
+      attendanceCount: 8,
+      lateCount: 1,
+      physicalCount: 9,
+      courtCount: 8,
+      absenceCount: 1,
+      injuryCount: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: PlayerAttendanceTable(
+            loadedSessionCount: 10,
+            totalSessionCount: 10,
+            rows: const [
+              PlayerAttendanceTableRow(player: player, stats: stats),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'ana',
+    );
+    await tester.pump();
+
+    expect(find.text('Ana García'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Limpiar búsqueda'));
+    await tester.pump();
+
+    expect(find.text('Ana García'), findsOneWidget);
+    expect(find.byTooltip('Limpiar búsqueda'), findsNothing);
+  });
+
+  testWidgets('keeps sorting working after filtering players', (
+    tester
+  ) async {
+    const ana = AppUser(
+      id: 'ana',
+      email: 'ana@example.com',
+      fullName: 'Ana',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    const bea = AppUser(
+      id: 'bea',
+      email: 'bea@example.com',
+      fullName: 'Bea',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    );
+
+    final rows = [
+      PlayerAttendanceTableRow(
+        player: ana,
+        stats: const PlayerAttendanceStats(
+          userId: 'ana',
+          sessionCount: 10,
+          eligibleSessionCount: 10,
+          attendedSessionCount: 8,
+          attendanceCount: 8,
+          lateCount: 0,
+          physicalCount: 8,
+          courtCount: 8,
+          absenceCount: 2,
+          injuryCount: 0,
+        ),
+      ),
+      PlayerAttendanceTableRow(
+        player: bea,
+        stats: const PlayerAttendanceStats(
+          userId: 'bea',
+          sessionCount: 10,
+          eligibleSessionCount: 10,
+          attendedSessionCount: 5,
+          attendanceCount: 5,
+          lateCount: 0,
+          physicalCount: 5,
+          courtCount: 5,
+          absenceCount: 5,
+          injuryCount: 0,
+        ),
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: PlayerAttendanceTable(
+            loadedSessionCount: 10,
+            totalSessionCount: 10,
+            rows: rows,
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'a',
+    );
+    await tester.pump();
+
+    expect(find.text('Ana'), findsOneWidget);
+    expect(find.text('Bea'), findsOneWidget);
+
+    await tester.tap(find.text('Asistencia %'));
+    await tester.pump();
+
+    expect(
+      _verticalOrder(tester, ['Ana', 'Bea']),
+      ['Bea', 'Ana'],
+    );
+  });
 }
 
 List<String> _verticalOrder(WidgetTester tester, List<String> labels) {
