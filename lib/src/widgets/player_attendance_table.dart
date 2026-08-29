@@ -220,40 +220,47 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                           widget.loadedSessionCount == widget.totalSessionCount
                               ? '${widget.totalSessionCount} sesiones finalizadas'
                               : 'Cargando historial: ${widget.loadedSessionCount} '
-                                  'de ${widget.totalSessionCount} sesiones',
+                                    'de ${widget.totalSessionCount} sesiones',
                           style: TextStyle(color: Colors.blueGrey.shade600),
                         ),
                       ],
                     ),
                   ],
                 ),
-                SizedBox(
-                  width: 220,
-                  child: TextField(
-                    key: const ValueKey('player-attendance-search'),
-                    decoration: InputDecoration(
-                      hintText: 'Buscar jugador',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchQuery.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Limpiar búsqueda',
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                setState(() {
-                                  _searchQuery = '';
-                                });
-                              },
-                            ),
-                      isDense: true,
-                    ),
-                    textInputAction: TextInputAction.search,
-                    onChanged: (value) {
-                      setState(() {
-                        _searchQuery = value;
-                      });
-                    },
-                  ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final searchWidth = constraints.maxWidth < 220
+                        ? constraints.maxWidth
+                        : 220.0;
+                    return SizedBox(
+                      width: 220,
+                      child: TextField(
+                        key: const ValueKey('player-attendance-search'),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar jugador',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Limpiar búsqueda',
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                ),
+                          isDense: true,
+                        ),
+                        textInputAction: TextInputAction.search,
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value;
+                          });
+                        },
+                      ),
+                    );
+                  },
                 ),
                 PopupMenuButton<_AttendanceCsvExport>(
                   key: const ValueKey('attendance-csv-menu'),
@@ -464,7 +471,8 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
     }
 
     return widget.rows.where((row) {
-      return row.player.fullName.toLowerCase().contains(query);
+      final normalizedName = _normalizeSearchText(row.player.fullName);
+      return normalizedName.contains(query);
     }).toList();
   }
 
@@ -548,4 +556,14 @@ enum _AttendanceCsvExport { players, sessions }
 String _fileDate(DateTime value) {
   String twoDigits(int part) => part.toString().padLeft(2, '0');
   return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
+}
+
+String _normalizeSearchText(String value) {
+  return value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[áàäâã]'), 'a')
+      .replaceAll(RegExp(r'[éèëê]'), 'e')
+      .replaceAll(RegExp(r'[íìïî]'), 'i')
+      .replaceAll(RegExp(r'[óòöôõ]'), 'o')
+      .replaceAll(RegExp(r'[úùüû]'), 'u');
 }
