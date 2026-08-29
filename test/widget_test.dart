@@ -7,10 +7,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mi_asistencia/src/app.dart';
 import 'package:mi_asistencia/src/models/app_user.dart';
 import 'package:mi_asistencia/src/models/attendance.dart';
+import 'package:mi_asistencia/src/models/team_membership.dart';
 import 'package:mi_asistencia/src/models/team_session.dart';
 import 'package:mi_asistencia/src/providers.dart';
 import 'package:mi_asistencia/src/repositories/auth_repository.dart';
 import 'package:mi_asistencia/src/repositories/team_repository.dart';
+import 'package:mi_asistencia/src/router/gate_state.dart';
 import 'package:mi_asistencia/src/screens/auth_screen.dart';
 import 'package:mi_asistencia/src/screens/batch_attendance_screen.dart';
 import 'package:mi_asistencia/src/screens/batch_edit_sessions_screen.dart';
@@ -24,17 +26,21 @@ import 'package:mi_asistencia/src/widgets/team_calendar.dart';
 void main() {
   testWidgets('renders the Spanish application shell', (tester) async {
     await tester.pumpWidget(
-      const MiAsistenciaApp(
-        home: Scaffold(body: Text('Calendario del equipo')),
+      ProviderScope(
+        overrides: [
+          gateStateProvider.overrideWithValue(const GateSignedOut()),
+        ],
+        child: const MiAsistenciaApp(),
       ),
     );
+    await tester.pumpAndSettle();
 
-    expect(find.text('Calendario del equipo'), findsOneWidget);
+    expect(find.text('Iniciar sesión'), findsOneWidget);
   });
 
   testWidgets('offers password recovery on sign-in', (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MiAsistenciaApp(home: AuthScreen())),
+      const ProviderScope(child: MaterialApp(home: AuthScreen())),
     );
 
     expect(find.text('Continuar con Google'), findsNothing);
@@ -56,7 +62,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MiAsistenciaApp(home: AuthScreen())),
+      const ProviderScope(child: MaterialApp(home: AuthScreen())),
     );
 
     await tester.ensureVisible(find.text('Quiero crear una cuenta'));
@@ -116,7 +122,7 @@ void main() {
             'ABC234',
           ).overrideWith((ref) async => 'Halcones Senior'),
         ],
-        child: const MiAsistenciaApp(
+        child: const MaterialApp(
           home: AuthScreen(invitationCode: 'ABC234'),
         ),
       ),
@@ -135,8 +141,11 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MiAsistenciaApp(home: AppGate(initialJoinCode: 'invalid')),
+      MaterialApp(
+        home: InvitationMessageScreen(
+          message: 'El enlace de invitación no contiene un código válido.',
+          onContinue: () {},
+        ),
       ),
     );
 
@@ -291,11 +300,30 @@ void main() {
       recurrenceSeriesId: 'series-1',
     );
 
+    const membership = TeamMembership(
+      teamId: 'team-1',
+      memberId: 'coach-1',
+      userId: 'coach-1',
+      fullName: 'Entrenador',
+      email: 'coach@example.com',
+      role: UserRole.admin,
+      active: true,
+    );
+
     await tester.pumpWidget(
       ProviderScope(
-        child: MaterialApp(home: EditSessionScreen(session: session)),
+        overrides: [
+          currentMembershipProvider.overrideWithValue(membership),
+          teamSessionsProvider('team-1').overrideWith(
+            (ref) => Stream.value([session]),
+          ),
+        ],
+        child: const MaterialApp(
+          home: EditSessionScreen(sessionId: 'session-1'),
+        ),
       ),
     );
+    await tester.pumpAndSettle();
 
     expect(find.text('Editar sesión'), findsOneWidget);
     expect(find.text('Entrenamiento de tiro'), findsOneWidget);
@@ -643,12 +671,13 @@ void main() {
   testWidgets('selected player sessions start checked in batch attendance', (
     tester,
   ) async {
-    const user = AppUser(
-      id: 'player',
-      email: 'player@example.com',
-      fullName: 'Jugador',
-      role: UserRole.player,
+    const user = TeamMembership(
       teamId: 'team-1',
+      memberId: 'player',
+      userId: 'player',
+      fullName: 'Jugador',
+      email: 'player@example.com',
+      role: UserRole.player,
       active: true,
     );
     final tomorrow = DateTime.now().add(const Duration(days: 1));
@@ -671,9 +700,11 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [
+          currentMembershipProvider.overrideWithValue(user),
+        ],
         child: MaterialApp(
           home: BatchAttendanceScreen(
-            user: user,
             sessions: sessions,
             initiallySelectAll: true,
           ),
@@ -914,10 +945,8 @@ void main() {
                   onEmptyDateSelected: (date) => Navigator.push(
                     context,
                     MaterialPageRoute<void>(
-                      builder: (context) => CreateSessionScreen(
-                        teamId: 'team-1',
-                        initialDate: date,
-                      ),
+                      builder: (context) =>
+                          CreateSessionScreen(initialDate: date),
                     ),
                   ),
                 ),

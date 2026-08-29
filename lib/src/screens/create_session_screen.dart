@@ -1,19 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
 
 class CreateSessionScreen extends ConsumerStatefulWidget {
-  const CreateSessionScreen({
-    required this.teamId,
-    this.initialDate,
-    super.key,
-  });
+  const CreateSessionScreen({this.initialDate, super.key});
 
-  final String teamId;
   final DateTime? initialDate;
 
   @override
@@ -30,6 +26,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   int _weeks = 4;
   final Set<int> _weekdays = {};
   bool _busy = false;
+  bool _canPop = false;
 
   @override
   void initState() {
@@ -111,10 +108,14 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
 
     setState(() => _busy = true);
     try {
+      final membership = ref.read(currentMembershipProvider);
+      if (membership == null) {
+        return;
+      }
       final count = await ref
           .read(sessionRepositoryProvider)
           .createSessions(
-            teamId: widget.teamId,
+            teamId: membership.teamId,
             title: _titleController.text,
             firstDate: _date,
             startTime: DateTime(2000, 1, 1, _startTime.hour, _startTime.minute),
@@ -125,7 +126,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
       if (!mounted) {
         return;
       }
-      Navigator.pop(context);
+      context.pop();
       showAppNotification(
         context,
         message: count == 1
@@ -151,10 +152,41 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
     }
   }
 
+  Future<void> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Descartar sesión'),
+        content: const Text('Los datos de esta sesión se perderán.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      setState(() => _canPop = true);
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     const weekdayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-    return Scaffold(
+    return PopScope(
+      canPop: _canPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _confirmDiscard();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('Nueva sesión')),
       body: AppPageBody(
         maxWidth: 620,
@@ -279,6 +311,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

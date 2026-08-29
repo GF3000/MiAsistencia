@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
@@ -9,18 +10,13 @@ import '../models/team_session.dart';
 import '../providers.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
+import '../widgets/async_state_view.dart';
 import '../widgets/attendance_editor.dart';
-import 'edit_session_screen.dart';
 
 class SessionDetailScreen extends ConsumerStatefulWidget {
-  const SessionDetailScreen({
-    required this.session,
-    required this.currentUser,
-    super.key,
-  });
+  const SessionDetailScreen({required this.sessionId, super.key});
 
-  final TeamSession session;
-  final TeamRosterMember currentUser;
+  final String sessionId;
 
   @override
   ConsumerState<SessionDetailScreen> createState() =>
@@ -28,37 +24,47 @@ class SessionDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
-  late TeamSession _session;
-
-  @override
-  void initState() {
-    super.initState();
-    _session = widget.session;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final currentUser = widget.currentUser;
-    final timeline = ref
-        .watch(teamSessionsProvider(_session.teamId))
-        .when(
-          data: (sessions) => buildSessionTimelinePosition(
-            sessions: sessions,
-            currentSessionId: _session.id,
-          ),
-          loading: () => const SessionTimelinePosition(
-            previous: null,
-            next: null,
-            position: 1,
-            total: 1,
-          ),
-          error: (error, stackTrace) => const SessionTimelinePosition(
-            previous: null,
-            next: null,
-            position: 1,
-            total: 1,
-          ),
-        );
+    final membership = ref.watch(currentMembershipProvider);
+    if (membership == null) {
+      return const AppLoadingView();
+    }
+    final sessionsState = ref.watch(teamSessionsProvider(membership.teamId));
+    return sessionsState.when(
+      loading: () => const AppLoadingView(),
+      error: (error, stackTrace) => AppErrorView(
+        message: 'No se pudo cargar la sesión.',
+        onRetry: () => ref.invalidate(teamSessionsProvider(membership.teamId)),
+      ),
+      data: (sessions) {
+        TeamSession? session;
+        for (final candidate in sessions) {
+          if (candidate.id == widget.sessionId) {
+            session = candidate;
+            break;
+          }
+        }
+        if (session == null) {
+          return Scaffold(
+            appBar: AppBar(),
+            body: const Center(child: Text('La sesión ya no existe.')),
+          );
+        }
+        return _buildContent(session, membership, sessions);
+      },
+    );
+  }
+
+  Widget _buildContent(
+    TeamSession session,
+    TeamRosterMember currentUser,
+    List<TeamSession> sessions,
+  ) {
+    final timeline = buildSessionTimelinePosition(
+      sessions: sessions,
+      currentSessionId: session.id,
+    );
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalle de la sesión'),
@@ -66,13 +72,13 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
           if (currentUser.isCoach)
             IconButton(
               tooltip: 'Editar sesión',
-              onPressed: _editSession,
+              onPressed: () => _editSession(session),
               icon: const Icon(Icons.edit_outlined),
             ),
           if (currentUser.isCoach)
             IconButton(
               tooltip: 'Eliminar sesión',
-              onPressed: () => _confirmDelete(context, ref),
+              onPressed: () => _confirmDelete(session),
               icon: const Icon(Icons.delete_outline),
             ),
         ],
@@ -91,13 +97,13 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
                   : () => _openSession(timeline.next!),
             ),
             const SizedBox(height: 12),
-            _SessionHeader(session: _session),
+            _SessionHeader(session: session),
             const SizedBox(height: 22),
             if (currentUser.isCoach)
-              _CoachAttendancePanel(session: _session, currentUser: currentUser)
+              _CoachAttendancePanel(session: session, currentUser: currentUser)
             else
               _PlayerAttendancePanel(
-                session: _session,
+                session: session,
                 currentUser: currentUser,
               ),
           ],
@@ -107,18 +113,14 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
   }
 
   void _openSession(TeamSession session) {
-    setState(() => _session = session);
+    context.go('/sessions/${session.id}');
   }
 
-  Future<void> _editSession() async {
-    final updated = await Navigator.push<TeamSession>(
-      context,
-      MaterialPageRoute<TeamSession>(
-        builder: (context) => EditSessionScreen(session: _session),
-      ),
+  Future<void> _editSession(TeamSession session) async {
+    final updated = await context.push<TeamSession>(
+      '/sessions/${session.id}/edit',
     );
     if (updated != null && mounted) {
-      setState(() => _session = updated);
       showAppNotification(
         context,
         message: 'Sesión actualizada.',
@@ -127,7 +129,7 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
     }
   }
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmDelete(TeamSession session) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -148,16 +150,16 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
         ],
       ),
     );
-    if (confirmed != true || !context.mounted) {
+    if (confirmed != true || !mounted) {
       return;
     }
     try {
-      await ref.read(sessionRepositoryProvider).deleteSession(_session.id);
-      if (context.mounted) {
-        Navigator.pop(context);
+      await ref.read(sessionRepositoryProvider).deleteSession(session.id);
+      if (mounted) {
+        context.pop();
       }
     } on FirebaseException {
-      if (context.mounted) {
+      if (mounted) {
         showAppNotification(
           context,
           message: 'No se pudo eliminar la sesión.',

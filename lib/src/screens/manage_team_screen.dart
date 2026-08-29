@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../utils/team_invitation.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
+import '../widgets/async_state_view.dart';
 
 enum TeamMemberAction {
   makeCoach,
@@ -44,9 +45,7 @@ List<TeamMemberAction> availableTeamMemberActions({
 }
 
 class ManageTeamScreen extends ConsumerStatefulWidget {
-  const ManageTeamScreen({required this.currentUser, super.key});
-
-  final TeamRosterMember currentUser;
+  const ManageTeamScreen({super.key});
 
   @override
   ConsumerState<ManageTeamScreen> createState() => _ManageTeamScreenState();
@@ -58,7 +57,11 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final teamId = widget.currentUser.teamId!;
+    final currentUser = ref.watch(currentMembershipProvider);
+    if (currentUser == null) {
+      return const AppLoadingView();
+    }
+    final teamId = currentUser.teamId;
     final repository = ref.watch(teamRepositoryProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Administrar equipo')),
@@ -141,7 +144,7 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                       title: 'Entrenadores',
                       count: coaches.length,
                       members: coaches,
-                      currentUser: widget.currentUser,
+                      currentUser: currentUser,
                       team: team,
                       busyMemberId: _busyMemberId,
                       onAction: _handleAction,
@@ -151,7 +154,7 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                       title: 'Jugadores',
                       count: players.length,
                       members: players,
-                      currentUser: widget.currentUser,
+                      currentUser: currentUser,
                       team: team,
                       busyMemberId: _busyMemberId,
                       onAction: _handleAction,
@@ -278,6 +281,10 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
   }
 
   Future<void> _addManagedPlayer() async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null) {
+      return;
+    }
     final fullName = await showManagedPlayerNameDialog(context);
     if (fullName == null || !mounted) {
       return;
@@ -288,8 +295,8 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
       await ref
           .read(teamRepositoryProvider)
           .createManagedPlayer(
-            teamId: widget.currentUser.teamId!,
-            actingUserId: widget.currentUser.id,
+            teamId: currentUser.teamId,
+            actingUserId: currentUser.id,
             fullName: fullName,
           );
       if (mounted) {
@@ -326,6 +333,10 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     TeamRosterMember member,
     TeamMemberAction action,
   ) async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null) {
+      return;
+    }
     final confirmed = await _confirmAction(member, action);
     if (!confirmed || !mounted) {
       return;
@@ -337,41 +348,41 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
       switch (action) {
         case TeamMemberAction.makeCoach:
           await repository.updateMemberRole(
-            teamId: widget.currentUser.teamId!,
+            teamId: currentUser.teamId,
             memberId: member.id,
-            actingUserId: widget.currentUser.id,
+            actingUserId: currentUser.id,
             role: UserRole.admin,
           );
           break;
         case TeamMemberAction.makePlayer:
           await repository.updateMemberRole(
-            teamId: widget.currentUser.teamId!,
+            teamId: currentUser.teamId,
             memberId: member.id,
-            actingUserId: widget.currentUser.id,
+            actingUserId: currentUser.id,
             role: UserRole.player,
           );
           break;
         case TeamMemberAction.presumeAttending:
           await repository.updateAttendancePresumption(
-            teamId: widget.currentUser.teamId!,
+            teamId: currentUser.teamId,
             memberId: member.id,
-            actingUserId: widget.currentUser.id,
+            actingUserId: currentUser.id,
             value: AttendancePresumption.attending,
           );
           break;
         case TeamMemberAction.presumeAbsent:
           await repository.updateAttendancePresumption(
-            teamId: widget.currentUser.teamId!,
+            teamId: currentUser.teamId,
             memberId: member.id,
-            actingUserId: widget.currentUser.id,
+            actingUserId: currentUser.id,
             value: AttendancePresumption.absent,
           );
           break;
         case TeamMemberAction.remove:
           await repository.removeMember(
-            teamId: widget.currentUser.teamId!,
+            teamId: currentUser.teamId,
             memberId: member.id,
-            actingUserId: widget.currentUser.id,
+            actingUserId: currentUser.id,
           );
           break;
       }

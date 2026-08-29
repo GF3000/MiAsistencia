@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mi_asistencia/src/models/app_user.dart';
+import 'package:mi_asistencia/src/models/team_membership.dart';
 import 'package:mi_asistencia/src/models/team_session.dart';
+import 'package:mi_asistencia/src/providers.dart';
 import 'package:mi_asistencia/src/screens/batch_attendance_screen.dart';
 
 void main() {
@@ -14,12 +16,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    const user = AppUser(
-      id: 'player',
-      email: 'player@example.com',
-      fullName: 'Jugador',
-      role: UserRole.player,
+    const user = TeamMembership(
       teamId: 'team-1',
+      memberId: 'player',
+      userId: 'player',
+      fullName: 'Jugador',
+      email: 'player@example.com',
+      role: UserRole.player,
       active: true,
     );
     final now = DateTime.now();
@@ -36,9 +39,11 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [
+          currentMembershipProvider.overrideWithValue(user),
+        ],
         child: MaterialApp(
           home: BatchAttendanceScreen(
-            user: user,
             sessions: sessions,
             initiallySelectAll: true,
           ),

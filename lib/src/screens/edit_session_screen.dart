@@ -1,27 +1,68 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/team_session.dart';
 import '../providers.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
+import '../widgets/async_state_view.dart';
 
-class EditSessionScreen extends ConsumerStatefulWidget {
-  const EditSessionScreen({required this.session, super.key});
+class EditSessionScreen extends ConsumerWidget {
+  const EditSessionScreen({required this.sessionId, super.key});
+
+  final String sessionId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final membership = ref.watch(currentMembershipProvider);
+    if (membership == null) {
+      return const AppLoadingView();
+    }
+    final sessionsState = ref.watch(teamSessionsProvider(membership.teamId));
+    return sessionsState.when(
+      loading: () => const AppLoadingView(),
+      error: (error, stackTrace) => AppErrorView(
+        message: 'No se pudo cargar la sesión.',
+        onRetry: () => ref.invalidate(teamSessionsProvider(membership.teamId)),
+      ),
+      data: (sessions) {
+        TeamSession? session;
+        for (final candidate in sessions) {
+          if (candidate.id == sessionId) {
+            session = candidate;
+            break;
+          }
+        }
+        if (session == null) {
+          return Scaffold(
+            appBar: AppBar(),
+            body: const Center(child: Text('La sesión ya no existe.')),
+          );
+        }
+        return _EditSessionForm(session: session);
+      },
+    );
+  }
+}
+
+class _EditSessionForm extends ConsumerStatefulWidget {
+  const _EditSessionForm({required this.session});
 
   final TeamSession session;
 
   @override
-  ConsumerState<EditSessionScreen> createState() => _EditSessionScreenState();
+  ConsumerState<_EditSessionForm> createState() => _EditSessionFormState();
 }
 
-class _EditSessionScreenState extends ConsumerState<EditSessionScreen> {
+class _EditSessionFormState extends ConsumerState<_EditSessionForm> {
   late final TextEditingController _titleController;
   late DateTime _date;
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   bool _busy = false;
+  bool _canPop = false;
 
   @override
   void initState() {
@@ -102,7 +143,7 @@ class _EditSessionScreenState extends ConsumerState<EditSessionScreen> {
             endTime: endTime,
           );
       if (mounted) {
-        Navigator.pop(context, updated);
+        context.pop(updated);
       }
     } on FirebaseException {
       if (mounted) {
@@ -127,9 +168,40 @@ class _EditSessionScreenState extends ConsumerState<EditSessionScreen> {
     );
   }
 
+  Future<void> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Descartar cambios'),
+        content: const Text('Los cambios que has hecho se perderán.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      setState(() => _canPop = true);
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: _canPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _confirmDiscard();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('Editar sesión')),
       body: AppPageBody(
         maxWidth: 620,
@@ -215,6 +287,7 @@ class _EditSessionScreenState extends ConsumerState<EditSessionScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

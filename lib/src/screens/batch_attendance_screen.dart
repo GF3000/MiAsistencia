@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/attendance.dart';
 import '../models/team_membership.dart';
@@ -26,13 +27,11 @@ Future<bool?> showBatchAttendanceEditor({
 
 class BatchAttendanceScreen extends ConsumerStatefulWidget {
   const BatchAttendanceScreen({
-    required this.user,
     required this.sessions,
     this.initiallySelectAll = false,
     super.key,
   });
 
-  final TeamRosterMember user;
   final List<TeamSession> sessions;
   final bool initiallySelectAll;
 
@@ -68,6 +67,10 @@ class _BatchAttendanceScreenState extends ConsumerState<BatchAttendanceScreen> {
   }
 
   Future<void> _changeAttendance() async {
+    final user = ref.read(currentMembershipProvider);
+    if (user == null) {
+      return;
+    }
     final selectedSessions = _editableSessions
         .where((session) => _selectedSessionIds.contains(session.id))
         .toList();
@@ -81,11 +84,11 @@ class _BatchAttendanceScreenState extends ConsumerState<BatchAttendanceScreen> {
     }
     final saved = await showBatchAttendanceEditor(
       context: context,
-      user: widget.user,
+      user: user,
       sessions: selectedSessions,
     );
     if (saved == true && mounted) {
-      Navigator.pop(context, true);
+      context.pop(true);
     }
   }
 
