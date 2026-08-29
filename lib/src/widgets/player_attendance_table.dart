@@ -187,69 +187,59 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-            child: Wrap(
-              spacing: 16,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final searchWidth = constraints.maxWidth < 220
+                    ? constraints.maxWidth
+                    : 220.0;
+
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(13),
-                      ),
-                      child: const Icon(
-                        Icons.analytics_outlined,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          'Histórico del equipo',
-                          style: Theme.of(context).textTheme.titleMedium,
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          child: const Icon(
+                            Icons.analytics_outlined,
+                            color: AppTheme.primary,
+                          ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.loadedSessionCount == widget.totalSessionCount
-                              ? '${widget.totalSessionCount} sesiones finalizadas'
-                              : 'Cargando historial: ${widget.loadedSessionCount} '
-                                    'de ${widget.totalSessionCount} sesiones',
-                          style: TextStyle(color: Colors.blueGrey.shade600),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Histórico del equipo',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.loadedSessionCount == widget.totalSessionCount
+                                  ? '${widget.totalSessionCount} sesiones finalizadas'
+                                  : 'Cargando historial: ${widget.loadedSessionCount} '
+                                      'de ${widget.totalSessionCount} sesiones',
+                              style: TextStyle(color: Colors.blueGrey.shade600),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final searchWidth = constraints.maxWidth < 220
-                        ? constraints.maxWidth
-                        : 220.0;
-                    return SizedBox(
-                      width: 220,
+                    SizedBox(
+                      width: searchWidth,
                       child: TextField(
                         key: const ValueKey('player-attendance-search'),
-                        decoration: InputDecoration(
+                        decoration: const InputDecoration(
                           hintText: 'Buscar jugador',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searchQuery.isEmpty
-                              ? null
-                              : IconButton(
-                                  tooltip: 'Limpiar búsqueda',
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    setState(() {
-                                      _searchQuery = '';
-                                    });
-                                  },
-                                ),
+                          prefixIcon: Icon(Icons.search),
                           isDense: true,
                         ),
                         textInputAction: TextInputAction.search,
@@ -259,39 +249,39 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                           });
                         },
                       ),
-                    );
-                  },
-                ),
-                PopupMenuButton<_AttendanceCsvExport>(
-                  key: const ValueKey('attendance-csv-menu'),
-                  enabled:
-                      widget.rows.isNotEmpty &&
-                      widget.loadedSessionCount == widget.totalSessionCount,
-                  tooltip: widget.loadedSessionCount == widget.totalSessionCount
-                      ? 'Descargar CSV'
-                      : 'Espera a que termine de cargar el historial',
-                  icon: const Icon(Icons.download_outlined),
-                  onSelected: _downloadCsv,
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: _AttendanceCsvExport.players,
-                      child: ListTile(
-                        leading: Icon(Icons.people_outline),
-                        title: Text('Descargar por jugadores'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
                     ),
-                    PopupMenuItem(
-                      value: _AttendanceCsvExport.sessions,
-                      child: ListTile(
-                        leading: Icon(Icons.event_note_outlined),
-                        title: Text('Descargar por sesión'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
+                    PopupMenuButton<_AttendanceCsvExport>(
+                      key: const ValueKey('attendance-csv-menu'),
+                      enabled:
+                          widget.rows.isNotEmpty &&
+                          widget.loadedSessionCount == widget.totalSessionCount,
+                      tooltip: widget.loadedSessionCount == widget.totalSessionCount
+                          ? 'Descargar CSV'
+                          : 'Espera a que termine de cargar el historial',
+                      icon: const Icon(Icons.download_outlined),
+                      onSelected: _downloadCsv,
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: _AttendanceCsvExport.players,
+                          child: ListTile(
+                            leading: Icon(Icons.people_outline),
+                            title: Text('Descargar por jugadores'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _AttendanceCsvExport.sessions,
+                          child: ListTile(
+                            leading: Icon(Icons.event_note_outlined),
+                            title: Text('Descargar por sesión'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ],
+                );
+              },
             ),
           ),
           if (widget.loadedSessionCount != widget.totalSessionCount)
@@ -464,7 +454,7 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
   }
 
   List<PlayerAttendanceTableRow> _filteredRows() {
-    final query = _searchQuery.trim().toLowerCase();
+    final query = _normalizeSearchText(_searchQuery.trim());
 
     if (query.isEmpty) {
       return [...widget.rows];
