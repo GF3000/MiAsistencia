@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
@@ -19,16 +20,9 @@ import '../widgets/session_view_switcher.dart';
 import '../widgets/team_calendar.dart';
 import '../widgets/team_selector.dart';
 import 'batch_attendance_screen.dart';
-import 'batch_edit_sessions_screen.dart';
-import 'create_session_screen.dart';
-import 'edit_session_screen.dart';
-import 'manage_team_screen.dart';
-import 'session_detail_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
-  const DashboardScreen({required this.user, super.key});
-
-  final TeamRosterMember user;
+  const DashboardScreen({super.key});
 
   @override
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
@@ -38,10 +32,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   SessionViewMode _selectedView = SessionViewMode.list;
   final Set<String> _selectedSessionIds = {};
 
+  TeamRosterMember get _user => ref.read(currentMembershipProvider)!;
+
   @override
   Widget build(BuildContext context) {
-    final user = widget.user;
-    final teamId = user.teamId!;
+    final user = ref.watch(currentMembershipProvider);
+    if (user == null) {
+      return const AppLoadingView();
+    }
+    final teamId = user.teamId;
     final teamState = ref.watch(teamProvider(teamId));
     final sessionsState = ref.watch(teamSessionsProvider(teamId));
 
@@ -55,12 +54,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           if (user.isCoach)
             IconButton(
               tooltip: 'Administrar equipo',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (context) => ManageTeamScreen(currentUser: user),
-                ),
-              ),
+              onPressed: () => context.push('/team/manage'),
               icon: const Icon(Icons.manage_accounts_outlined),
             ),
           PopupMenuButton<String>(
@@ -157,14 +151,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           NextSessionCard(
                             session: upcoming.first,
                             user: user,
-                            onOpen: () => Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (context) => SessionDetailScreen(
-                                  session: upcoming.first,
-                                  currentUser: user,
-                                ),
-                              ),
+                            onOpen: () => context.push(
+                              '/sessions/${upcoming.first.id}',
                             ),
                           ),
                           const SizedBox(height: 24),
@@ -189,14 +177,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             ),
                             if (!user.isCoach && upcoming.isNotEmpty)
                               TextButton.icon(
-                                onPressed: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (context) => BatchAttendanceScreen(
-                                      user: user,
-                                      sessions: upcoming,
-                                    ),
-                                  ),
+                                onPressed: () => context.push(
+                                  '/sessions/batch-attendance',
+                                  extra: upcoming,
                                 ),
                                 icon: const Icon(Icons.library_add_check),
                                 label: const Text('Seleccionar varias'),
@@ -297,29 +280,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _toggleSessionSelection(session);
       return;
     }
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (context) =>
-            SessionDetailScreen(session: session, currentUser: widget.user),
-      ),
-    );
+    context.push('/sessions/${session.id}');
   }
 
   void _openCreateSession({DateTime? initialDate}) {
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (context) => CreateSessionScreen(
-          teamId: widget.user.teamId!,
-          initialDate: initialDate,
-        ),
-      ),
-    );
+    context.push('/sessions/new', extra: initialDate);
   }
 
   void _toggleSessionSelection(TeamSession session) {
-    if (!widget.user.isCoach && !canPlayerEditAttendance(session)) {
+    if (!_user.isCoach && !canPlayerEditAttendance(session)) {
       showAppNotification(
         context,
         message: 'No puedes modificar la asistencia de una sesión finalizada.',
@@ -341,7 +310,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Future<void> _batchAttendance(List<TeamSession> sessions) async {
     final saved = await showBatchAttendanceEditor(
       context: context,
-      user: widget.user,
+      user: _user,
       sessions: sessions,
     );
     if (saved == true && mounted) {
@@ -350,11 +319,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _batchEditSessions(List<TeamSession> sessions) async {
-    final saved = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute<bool>(
-        builder: (context) => BatchEditSessionsScreen(sessions: sessions),
-      ),
+    final saved = await context.push<bool>(
+      '/sessions/batch-edit',
+      extra: sessions,
     );
     if (saved == true && mounted) {
       _clearSessionSelection();
@@ -416,11 +383,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _editSession(TeamSession session) async {
-    final updated = await Navigator.push<TeamSession>(
-      context,
-      MaterialPageRoute<TeamSession>(
-        builder: (context) => EditSessionScreen(session: session),
-      ),
+    final updated = await context.push<TeamSession>(
+      '/sessions/${session.id}/edit',
     );
     if (updated != null && mounted) {
       showAppNotification(
@@ -432,7 +396,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _leaveTeam() async {
-    final user = widget.user;
+    final user = _user;
     if (!user.canLeaveTeam) {
       return;
     }

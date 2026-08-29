@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/app_user.dart';
 import '../models/team_membership.dart';
 import '../providers.dart';
-import '../screens/onboarding_screen.dart';
 import '../theme/app_theme.dart';
 
 /// AppBar dropdown showing the active team name; opening it lists the user's
@@ -34,10 +34,8 @@ class TeamDropdown extends ConsumerWidget {
       tooltip: 'Cambiar de equipo',
       onSelected: (value) async {
         if (value == 'create' || value == 'join') {
-          _openOnboarding(
-            ref,
-            context,
-            initialTab: value == 'create' ? 0 : 1,
+          context.push(
+            '/onboarding?tab=${value == 'create' ? 0 : 1}',
           );
           return;
         }
@@ -112,23 +110,6 @@ class TeamDropdown extends ConsumerWidget {
             const Icon(Icons.arrow_drop_down, color: AppTheme.navy),
           ],
         ),
-      ),
-    );
-  }
-
-  void _openOnboarding(
-    WidgetRef ref,
-    BuildContext context, {
-    required int initialTab,
-  }) {
-    final profile = ref.read(userProfileProvider(membership.id)).value;
-    if (profile == null) {
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => OnboardingScreen(user: profile, initialTab: initialTab),
       ),
     );
   }

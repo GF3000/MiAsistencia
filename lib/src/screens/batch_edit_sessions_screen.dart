@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/team_session.dart';
 import '../providers.dart';
@@ -25,6 +26,7 @@ class _BatchEditSessionsScreenState
   bool _changeTitle = false;
   bool _changeTime = false;
   bool _busy = false;
+  bool _canPop = false;
 
   @override
   void initState() {
@@ -94,7 +96,7 @@ class _BatchEditSessionsScreenState
                 : null,
           );
       if (mounted) {
-        Navigator.pop(context, true);
+        context.pop(true);
       }
     } on FirebaseException {
       if (mounted) {
@@ -119,9 +121,40 @@ class _BatchEditSessionsScreenState
     );
   }
 
+  Future<void> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Descartar cambios'),
+        content: const Text('Los cambios que has hecho se perderán.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      setState(() => _canPop = true);
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: _canPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _confirmDiscard();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text('Modificar ${widget.sessions.length} sesiones'),
       ),
@@ -229,6 +262,7 @@ class _BatchEditSessionsScreenState
             ),
           ],
         ),
+      ),
       ),
     );
   }

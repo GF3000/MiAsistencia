@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mi_asistencia/src/app.dart';
 import 'package:mi_asistencia/src/models/app_user.dart';
 import 'package:mi_asistencia/src/models/attendance.dart';
 import 'package:mi_asistencia/src/models/team_membership.dart';
@@ -32,6 +31,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          currentMembershipProvider.overrideWithValue(user),
           teamRepositoryProvider.overrideWithValue(_FakeTeamRepository()),
           attendanceRepositoryProvider.overrideWithValue(
             _FakeAttendanceRepository(),
@@ -41,7 +41,7 @@ void main() {
             'team-1',
           ).overrideWith((ref) => Stream.value(const [])),
         ],
-        child: const MiAsistenciaApp(home: DashboardScreen(user: user)),
+        child: const MaterialApp(home: DashboardScreen()),
       ),
     );
     await tester.pumpAndSettle();

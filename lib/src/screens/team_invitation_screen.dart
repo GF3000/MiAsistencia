@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/app_user.dart';
 import '../providers.dart';
@@ -10,16 +11,9 @@ import '../widgets/app_widgets.dart';
 import '../widgets/async_state_view.dart';
 
 class TeamInvitationScreen extends ConsumerStatefulWidget {
-  const TeamInvitationScreen({
-    required this.user,
-    required this.code,
-    required this.onFinished,
-    super.key,
-  });
+  const TeamInvitationScreen({required this.code, super.key});
 
-  final AppUser user;
   final String code;
-  final VoidCallback onFinished;
 
   @override
   ConsumerState<TeamInvitationScreen> createState() =>
@@ -41,21 +35,24 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
     Future<void>.microtask(_resolveInvitation);
   }
 
-  @override
-  void didUpdateWidget(TeamInvitationScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_waitingForProfileUpdate &&
-        _targetTeam != null &&
-        widget.user.teamId == _targetTeam!.id) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          widget.onFinished();
-        }
-      });
+  void _finish() {
+    if (mounted) {
+      context.go('/');
     }
   }
 
   Future<void> _resolveInvitation() async {
+    final user = ref.read(currentAppUserProvider);
+    if (user == null) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _message = 'No se pudo completar la invitación.';
+        });
+      }
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _loading = true;
@@ -78,19 +75,19 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
         });
         return;
       }
-      if (widget.user.teamId == targetTeam.id) {
-        widget.onFinished();
+      if (user.teamId == targetTeam.id) {
+        _finish();
         return;
       }
 
       _targetTeam = targetTeam;
-      if (!widget.user.hasTeam) {
+      if (!user.hasTeam) {
         setState(() => _loading = false);
         await _joinTeam();
         return;
       }
 
-      final currentTeam = await repository.getTeam(widget.user.teamId!);
+      final currentTeam = await repository.getTeam(user.teamId!);
       if (!mounted) {
         return;
       }
@@ -109,11 +106,15 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
   }
 
   Future<void> _joinTeam() async {
+    final user = ref.read(currentAppUserProvider);
+    if (user == null) {
+      return;
+    }
     setState(() => _joining = true);
     try {
       await ref
           .read(teamRepositoryProvider)
-          .joinTeam(code: widget.code, userId: widget.user.id);
+          .joinTeam(code: widget.code, userId: user.id);
       if (mounted) {
         setState(() => _waitingForProfileUpdate = true);
       }
@@ -134,9 +135,25 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AppUser?>(currentAppUserProvider, (previous, next) {
+      if (_waitingForProfileUpdate &&
+          _targetTeam != null &&
+          next?.teamId == _targetTeam!.id) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _finish();
+          }
+        });
+      }
+    });
+
+    final user = ref.watch(currentAppUserProvider);
+    if (user == null) {
+      return const _InvitationLoadingView();
+    }
     if (_loading ||
         _waitingForProfileUpdate ||
-        (_targetTeam != null && !widget.user.hasTeam && _joining)) {
+        (_targetTeam != null && !user.hasTeam && _joining)) {
       return const _InvitationLoadingView();
     }
     if (_loadError != null) {
@@ -146,16 +163,13 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
       );
     }
     if (_message case final message?) {
-      return InvitationMessageScreen(
-        message: message,
-        onContinue: widget.onFinished,
-      );
+      return InvitationMessageScreen(message: message, onContinue: _finish);
     }
 
-    if (!widget.user.hasTeam || _targetTeam == null) {
+    if (!user.hasTeam || _targetTeam == null) {
       return InvitationMessageScreen(
         message: 'No se pudo completar la invitación.',
-        onContinue: widget.onFinished,
+        onContinue: _finish,
       );
     }
 
@@ -163,7 +177,7 @@ class _TeamInvitationScreenState extends ConsumerState<TeamInvitationScreen> {
       currentTeamName: _currentTeam?.name ?? 'tu equipo actual',
       targetTeamName: _targetTeam!.name,
       busy: _joining,
-      onCancel: widget.onFinished,
+      onCancel: _finish,
       onConfirm: _joinTeam,
     );
   }

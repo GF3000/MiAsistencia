@@ -111,6 +111,10 @@ String? _redirectForGate(GateState gate, GoRouterState state) {
   final rawJoin = state.uri.queryParameters['join'];
   final join = normalizeTeamCode(rawJoin);
 
+  if (rawJoin != null && join == null) {
+    return location == '/invite-invalid' ? null : '/invite-invalid';
+  }
+
   switch (gate) {
     case GateChecking():
       return location == '/loading' ? null : '/loading';
@@ -128,9 +132,6 @@ String? _redirectForGate(GateState gate, GoRouterState state) {
       return join != null ? '/profile?join=$join' : '/profile';
     case GateOnboarding():
     case GateReady():
-      if (rawJoin != null && join == null) {
-        return location == '/invite-invalid' ? null : '/invite-invalid';
-      }
       if (join != null) {
         return location == '/invite/$join' ? null : '/invite/$join';
       }
