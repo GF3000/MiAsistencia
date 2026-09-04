@@ -13,6 +13,7 @@ import '../screens/dashboard_screen.dart';
 import '../screens/edit_session_screen.dart';
 import '../screens/manage_team_screen.dart';
 import '../screens/onboarding_screen.dart';
+import '../screens/player_detail_screen.dart';
 import '../screens/session_detail_screen.dart';
 import '../screens/team_invitation_screen.dart';
 import '../widgets/async_state_view.dart';
@@ -74,6 +75,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/team/manage',
         builder: (context, state) => const ManageTeamScreen(),
+      ),
+      GoRoute(
+        path: '/team/players/:memberId',
+        builder: (context, state) => PlayerDetailScreen(
+          memberId: state.pathParameters['memberId']!,
+        ),
       ),
       GoRoute(
         path: '/sessions/new',
@@ -146,6 +153,7 @@ String? _redirectForGate(GateState gate, GoRouterState state) {
       }
       if (location == '/' ||
           location == '/team/manage' ||
+          location.startsWith('/team/players') ||
           location.startsWith('/sessions')) {
         return null;
       }

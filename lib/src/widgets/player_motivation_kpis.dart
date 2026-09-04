@@ -25,6 +25,9 @@ class _ExpandableKpiCard extends StatefulWidget {
     required this.percentage,
     required this.expandedChild,
     required this.loading,
+    this.initiallyExpanded = false,
+    this.expanded,
+    this.onExpandedChanged,
   });
 
   final ValueKey<String> containerKey;
@@ -34,13 +37,35 @@ class _ExpandableKpiCard extends StatefulWidget {
   final int? percentage;
   final Widget expandedChild;
   final bool loading;
+  final bool initiallyExpanded;
+
+  /// When non-null, the expanded/collapsed state is controlled by the
+  /// caller (via [onExpandedChanged]) instead of being tracked internally.
+  /// Used so the state can survive this widget being torn down and rebuilt,
+  /// e.g. when navigating between players.
+  final bool? expanded;
+  final ValueChanged<bool>? onExpandedChanged;
 
   @override
   State<_ExpandableKpiCard> createState() => _ExpandableKpiCardState();
 }
 
 class _ExpandableKpiCardState extends State<_ExpandableKpiCard> {
-  bool _expanded = false;
+  late bool _expanded = widget.expanded ?? widget.initiallyExpanded;
+
+  @override
+  void didUpdateWidget(covariant _ExpandableKpiCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.expanded != null && widget.expanded != _expanded) {
+      _expanded = widget.expanded!;
+    }
+  }
+
+  void _toggle() {
+    final next = !_expanded;
+    setState(() => _expanded = next);
+    widget.onExpandedChanged?.call(next);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +94,7 @@ class _ExpandableKpiCardState extends State<_ExpandableKpiCard> {
                     : 'Expandir indicadores',
                 child: InkWell(
                   key: widget.toggleKey,
-                  onTap: () => setState(() => _expanded = !_expanded),
+                  onTap: _toggle,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 18,
@@ -308,6 +333,11 @@ class PlayerMotivationCard extends StatelessWidget {
     required this.kpis,
     this.loading = false,
     this.message,
+    this.title = 'Tu rendimiento',
+    this.subtitleLabel = 'Jugador',
+    this.initiallyExpanded = false,
+    this.expanded,
+    this.onExpandedChanged,
     super.key,
   });
 
@@ -315,6 +345,14 @@ class PlayerMotivationCard extends StatelessWidget {
   final PlayerMotivationKpis? kpis;
   final bool loading;
   final String? message;
+  final String title;
+  final String subtitleLabel;
+  final bool initiallyExpanded;
+
+  /// When non-null, controls the card's expanded state externally (see
+  /// [_ExpandableKpiCard.expanded]) instead of tracking it internally.
+  final bool? expanded;
+  final ValueChanged<bool>? onExpandedChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -324,8 +362,11 @@ class PlayerMotivationCard extends StatelessWidget {
     return _ExpandableKpiCard(
       containerKey: const ValueKey('player-motivation-kpis'),
       toggleKey: const ValueKey('toggle-player-kpis'),
-      title: 'Tu rendimiento',
-      subtitle: '$teamName · Jugador',
+      initiallyExpanded: initiallyExpanded,
+      expanded: expanded,
+      onExpandedChanged: onExpandedChanged,
+      title: title,
+      subtitle: '$teamName · $subtitleLabel',
       percentage: kpis?.recentAttendancePercentage,
       loading: loading,
       expandedChild: Column(

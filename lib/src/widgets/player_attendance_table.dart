@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
@@ -233,7 +234,7 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                         ? constraints.maxWidth
                         : 220.0;
                     return SizedBox(
-                      width: 220,
+                      width: searchWidth,
                       child: TextField(
                         key: const ValueKey('player-attendance-search'),
                         decoration: InputDecoration(
@@ -334,6 +335,7 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
                   key: const ValueKey('player-attendance-table'),
+                  showCheckboxColumn: false,
                   headingRowColor: WidgetStatePropertyAll(
                     AppTheme.primary.withValues(alpha: 0.07),
                   ),
@@ -355,6 +357,12 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                   rows: sortedRows
                       .map(
                         (row) => DataRow(
+                          key: ValueKey(
+                            'player-attendance-row-${row.player.id}',
+                          ),
+                          onSelectChanged: (_) => context.push(
+                            '/team/players/${row.player.id}',
+                          ),
                           cells: [
                             DataCell(
                               SizedBox(

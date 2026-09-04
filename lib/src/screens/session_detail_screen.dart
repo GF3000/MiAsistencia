@@ -113,7 +113,7 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
   }
 
   void _openSession(TeamSession session) {
-    context.go('/sessions/${session.id}');
+    context.replace('/sessions/${session.id}');
   }
 
   Future<void> _editSession(TeamSession session) async {

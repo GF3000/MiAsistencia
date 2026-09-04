@@ -94,6 +94,21 @@ final currentMembershipProvider = Provider<TeamMembership?>((ref) {
   return ref.watch(activeMembershipProvider(appUser.id)).value;
 });
 
+/// Whether the "Rendimiento" KPI card on the coach's player detail screen is
+/// expanded. Kept outside the screen's widget state so it survives
+/// navigating between players (which replaces the screen instance).
+class PlayerPerformanceCardExpandedNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool value) => state = value;
+}
+
+final playerPerformanceCardExpandedProvider =
+    NotifierProvider<PlayerPerformanceCardExpandedNotifier, bool>(
+      PlayerPerformanceCardExpandedNotifier.new,
+    );
+
 final activeMembershipProvider = Provider.family<AsyncValue<TeamMembership?>, String>(
   (ref, userId) {
     final memberships = ref.watch(membershipsForUserProvider(userId));
