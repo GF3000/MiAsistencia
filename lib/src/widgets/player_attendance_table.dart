@@ -5,11 +5,13 @@ import '../models/app_user.dart';
 import '../models/attendance.dart';
 import '../models/team_membership.dart';
 import '../models/team_session.dart';
+import '../models/player_motivation.dart';
 import '../providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/attendance_csv.dart';
 import '../utils/file_download.dart';
 import 'app_widgets.dart';
+import 'player_attendance_profile_dialog.dart';
 
 class PlayerAttendanceOverview extends ConsumerStatefulWidget {
   const PlayerAttendanceOverview({
@@ -178,6 +180,14 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
   bool _sortAscending = true;
   String _searchQuery = '';
 
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final sortedRows = _sortedRows();
@@ -223,10 +233,11 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              widget.loadedSessionCount == widget.totalSessionCount
+                              widget.loadedSessionCount ==
+                                      widget.totalSessionCount
                                   ? '${widget.totalSessionCount} sesiones finalizadas'
                                   : 'Cargando historial: ${widget.loadedSessionCount} '
-                                      'de ${widget.totalSessionCount} sesiones',
+                                        'de ${widget.totalSessionCount} sesiones',
                               style: TextStyle(color: Colors.blueGrey.shade600),
                             ),
                           ],
@@ -237,9 +248,22 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                       width: searchWidth,
                       child: TextField(
                         key: const ValueKey('player-attendance-search'),
-                        decoration: const InputDecoration(
+                        controller: _searchController,
+                        decoration: InputDecoration(
                           hintText: 'Buscar jugador',
-                          prefixIcon: Icon(Icons.search),
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Limpiar búsqueda',
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() {
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                ),
                           isDense: true,
                         ),
                         textInputAction: TextInputAction.search,
@@ -255,7 +279,8 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                       enabled:
                           widget.rows.isNotEmpty &&
                           widget.loadedSessionCount == widget.totalSessionCount,
-                      tooltip: widget.loadedSessionCount == widget.totalSessionCount
+                      tooltip:
+                          widget.loadedSessionCount == widget.totalSessionCount
                           ? 'Descargar CSV'
                           : 'Espera a que termine de cargar el historial',
                       icon: const Icon(Icons.download_outlined),
@@ -345,6 +370,7 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                   rows: sortedRows
                       .map(
                         (row) => DataRow(
+                          onSelectChanged: (_) => _showPlayerProfile(row),
                           cells: [
                             DataCell(
                               SizedBox(
@@ -408,6 +434,29 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showPlayerProfile(PlayerAttendanceTableRow row) {
+    final kpis = buildPlayerMotivationKpis(
+      currentPlayer: row.player,
+      members: widget.rows.map((item) => item.player),
+      completedSessions: widget.completedSessions,
+      attendanceBySession: widget.attendanceBySession,
+      referenceDate: DateTime.now(),
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return PlayerAttendanceProfileDialog(
+          player: row.player,
+          stats: row.stats,
+          kpis: kpis,
+          completedSessions: widget.completedSessions,
+          attendanceBySession: widget.attendanceBySession,
+        );
+      },
     );
   }
 
