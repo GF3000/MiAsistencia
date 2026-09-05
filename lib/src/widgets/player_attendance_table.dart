@@ -33,6 +33,8 @@ class _PlayerAttendanceOverviewState
   late Stream<List<TeamRosterMember>> _membersStream;
   late Stream<AttendanceHistorySnapshot> _attendanceStream;
   late int _sessionsSignature;
+  _DateFilter _dateFilter = _DateFilter.allSeason;
+  DateTimeRange? _customDateRange;
 
   @override
   void initState() {
@@ -76,6 +78,13 @@ class _PlayerAttendanceOverviewState
       );
     }
 
+    // Filtrar sesiones según el rango de fechas seleccionado
+    final filteredSessions = _filterSessionsByDate(
+      widget.completedSessions,
+      _dateFilter,
+      _customDateRange,
+    );
+
     return StreamBuilder<List<TeamRosterMember>>(
       stream: _membersStream,
       builder: (context, membersSnapshot) {
@@ -115,7 +124,7 @@ class _PlayerAttendanceOverviewState
             }
             final history = attendanceSnapshot.data!;
             final attendance = history.attendanceBySession;
-            final loadedSessions = widget.completedSessions
+            final filteredLoadedSessions = filteredSessions
                 .where(
                   (session) => history.loadedSessionIds.contains(session.id),
                 )
@@ -126,17 +135,25 @@ class _PlayerAttendanceOverviewState
                   player: player,
                   stats: buildPlayerAttendanceStats(
                     player: player,
-                    sessions: loadedSessions,
+                    sessions: filteredLoadedSessions,
                     attendanceBySession: attendance,
                   ),
                 ),
             ];
             return PlayerAttendanceTable(
               rows: rows,
-              completedSessions: loadedSessions,
+              completedSessions: filteredLoadedSessions,
               attendanceBySession: attendance,
-              loadedSessionCount: history.loadedSessionIds.length,
-              totalSessionCount: history.totalSessionCount,
+              loadedSessionCount: filteredLoadedSessions.length,
+              totalSessionCount: filteredSessions.length,
+              dateFilter: _dateFilter,
+              customDateRange: _customDateRange,
+              onDateFilterChanged: (filter, range) {
+                setState(() {
+                  _dateFilter = filter;
+                  _customDateRange = range;
+                });
+              },
             );
           },
         );
@@ -159,6 +176,9 @@ class PlayerAttendanceTable extends StatefulWidget {
     required this.totalSessionCount,
     this.completedSessions = const [],
     this.attendanceBySession = const {},
+    this.dateFilter = _DateFilter.allSeason,
+    this.customDateRange,
+    this.onDateFilterChanged,
     this.downloadFile = downloadTextFile,
     super.key,
   });
@@ -168,6 +188,9 @@ class PlayerAttendanceTable extends StatefulWidget {
   final int totalSessionCount;
   final List<TeamSession> completedSessions;
   final Map<String, Map<String, AttendanceRecord>> attendanceBySession;
+  final _DateFilter dateFilter;
+  final DateTimeRange? customDateRange;
+  final void Function(_DateFilter, DateTimeRange?)? onDateFilterChanged;
   final void Function({required String fileName, required String content})
   downloadFile;
 
@@ -181,6 +204,11 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
   String _searchQuery = '';
 
   final TextEditingController _searchController = TextEditingController();
+
+  _DateFilter get _dateFilter => widget.dateFilter;
+  DateTimeRange? get _customDateRange => widget.customDateRange;
+  void Function(_DateFilter, DateTimeRange?)? get _onDateFilterChanged =>
+      widget.onDateFilterChanged;
 
   @override
   void dispose() {
@@ -272,6 +300,65 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                             _searchQuery = value;
                           });
                         },
+                      ),
+                    ),
+                    InputDecorator(
+                      decoration: InputDecoration(
+                        hintText: _dateFilter == _DateFilter.custom &&
+                                _customDateRange != null
+                            ? _formatCustomDateRange(_customDateRange!)
+                            : 'Periodo',
+                        prefixIcon: const Icon(Icons.calendar_today),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<_DateFilter>(
+                          value: _dateFilter,
+                          isDense: true,
+                          style: TextStyle(
+                            color: Colors.blueGrey.shade700,
+                            fontSize: 14,
+                          ),
+                          onChanged: (value) async {
+                            if (value == null) return;
+
+                            if (value == _DateFilter.custom) {
+                              final now = DateTime.now();
+                              final initialRange = _customDateRange ??
+                                  DateTimeRange(
+                                    start: now.subtract(const Duration(days: 30)),
+                                    end: now,
+                                  );
+
+                              final range = await showDateRangePicker(
+                                context: context,
+                                firstDate: DateTime(2020),
+                                lastDate: now,
+                                initialDateRange: initialRange,
+                                locale: const Locale('es', 'ES'),
+                              );
+
+                              if (range != null && mounted) {
+                                _onDateFilterChanged?.call(_DateFilter.custom, range);
+                              } else if (mounted) {
+                                // Si canceló, volver a allSeason
+                                _onDateFilterChanged?.call(_DateFilter.allSeason, null);
+                              }
+                            } else {
+                              _onDateFilterChanged?.call(value, null);
+                            }
+                          },
+                          items: _DateFilter.values.map((filter) {
+                            return DropdownMenuItem<_DateFilter>(
+                              value: filter,
+                              child: Text(_dateFilterLabel(filter)),
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
                     PopupMenuButton<_AttendanceCsvExport>(
@@ -592,6 +679,15 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
 
 enum _AttendanceCsvExport { players, sessions }
 
+enum _DateFilter {
+  allSeason,
+  last30Days,
+  last90Days,
+  thisMonth,
+  thisWeek,
+  custom,
+}
+
 String _fileDate(DateTime value) {
   String twoDigits(int part) => part.toString().padLeft(2, '0');
   return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
@@ -605,4 +701,61 @@ String _normalizeSearchText(String value) {
       .replaceAll(RegExp(r'[íìïî]'), 'i')
       .replaceAll(RegExp(r'[óòöôõ]'), 'o')
       .replaceAll(RegExp(r'[úùüû]'), 'u');
+}
+
+List<TeamSession> _filterSessionsByDate(
+  List<TeamSession> sessions,
+  _DateFilter filter,
+  DateTimeRange? customRange,
+) {
+  final now = DateTime.now();
+  switch (filter) {
+    case _DateFilter.allSeason:
+      return sessions;
+    case _DateFilter.last30Days:
+      final cutoff = now.subtract(const Duration(days: 30));
+      return sessions.where((s) => !s.startTime.isBefore(cutoff)).toList();
+    case _DateFilter.last90Days:
+      final cutoff = now.subtract(const Duration(days: 90));
+      return sessions.where((s) => !s.startTime.isBefore(cutoff)).toList();
+    case _DateFilter.thisMonth:
+      final monthStart = DateTime(now.year, now.month);
+      return sessions.where((s) => !s.startTime.isBefore(monthStart)).toList();
+    case _DateFilter.thisWeek:
+      final weekStart = now.subtract(Duration(days: now.weekday - DateTime.monday));
+      final startOfDay = DateTime(weekStart.year, weekStart.month, weekStart.day);
+      return sessions.where((s) => !s.startTime.isBefore(startOfDay)).toList();
+    case _DateFilter.custom:
+      if (customRange == null) return sessions;
+      return sessions
+          .where(
+            (s) =>
+                !s.startTime.isBefore(customRange.start) &&
+                s.startTime.isBefore(customRange.end.add(const Duration(days: 1))),
+          )
+          .toList();
+  }
+}
+
+String _dateFilterLabel(_DateFilter filter) {
+  switch (filter) {
+    case _DateFilter.allSeason:
+      return 'Toda la temporada';
+    case _DateFilter.last30Days:
+      return 'Últimos 30 días';
+    case _DateFilter.last90Days:
+      return 'Últimos 90 días';
+    case _DateFilter.thisMonth:
+      return 'Este mes';
+    case _DateFilter.thisWeek:
+      return 'Esta semana';
+    case _DateFilter.custom:
+      return 'Personalizado';
+  }
+}
+
+String _formatCustomDateRange(DateTimeRange range) {
+  String twoDigits(int n) => n.toString().padLeft(2, '0');
+  return '${twoDigits(range.start.day)}/${twoDigits(range.start.month)} - '
+      '${twoDigits(range.end.day)}/${twoDigits(range.end.month)}';
 }
