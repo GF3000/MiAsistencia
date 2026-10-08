@@ -157,6 +157,51 @@ service cloud.firestore {
         allow read: if belongsToTeam(teamId);
         allow write: if false;
       }
+
+      // Coach-only player tags (e.g. "Portero"). Players never read them.
+      // The per-team cap and duplicate names are enforced by the client:
+      // rules cannot count documents in a collection.
+      match /playerTags/{tagId} {
+        function hasValidTagShape() {
+          return request.resource.data.keys().hasOnly([
+              'name',
+              'createdAt',
+              'createdBy',
+              'updatedAt'
+            ])
+            && request.resource.data.name is string
+            && request.resource.data.name.trim().size() >= 1
+            && request.resource.data.name.size() <= 24;
+        }
+
+        allow read, delete: if isTeamCoach(teamId);
+        allow create: if isTeamCoach(teamId)
+          && hasValidTagShape()
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isTeamCoach(teamId)
+          && hasValidTagShape()
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt;
+      }
+
+      // Tags assigned to each roster member, keyed by memberId. Deliberately
+      // no membership exists() check: deleting a tag rewrites every carrier
+      // in one batch, and per-member lookups would exceed the rules' 20
+      // document-access limit.
+      match /playerTagAssignments/{memberId} {
+        allow read, delete: if isTeamCoach(teamId);
+        allow create, update: if isTeamCoach(teamId)
+          && request.resource.data.keys().hasOnly([
+            'tagIds',
+            'updatedAt',
+            'updatedBy'
+          ])
+          && request.resource.data.tagIds is list
+          && request.resource.data.tagIds.size() <= 5
+          && request.resource.data.tagIds.toSet().size()
+            == request.resource.data.tagIds.size()
+          && request.resource.data.updatedBy == request.auth.uid;
+      }
     }
 
     match /teamInvites/{teamId} {

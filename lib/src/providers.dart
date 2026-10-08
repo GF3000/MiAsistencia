@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/app_user.dart';
 import 'models/attendance.dart';
+import 'models/player_tag.dart';
 import 'models/team_membership.dart';
 import 'models/team_session.dart';
 import 'repositories/attendance_repository.dart';
 import 'repositories/auth_repository.dart';
+import 'repositories/player_tag_repository.dart';
 import 'repositories/session_repository.dart';
 import 'repositories/team_repository.dart';
 
@@ -33,6 +35,22 @@ final sessionRepositoryProvider = Provider<SessionRepository>(
 final attendanceRepositoryProvider = Provider<AttendanceRepository>(
   (ref) => AttendanceRepository(ref.watch(firestoreProvider)),
 );
+final playerTagRepositoryProvider = Provider<PlayerTagRepository>(
+  (ref) => PlayerTagRepository(ref.watch(firestoreProvider)),
+);
+
+/// The team's player tag catalog. Coach-only: the rules deny players, so
+/// only watch it from coach screens.
+final playerTagsProvider = StreamProvider.family<List<PlayerTag>, String>(
+  (ref, teamId) => ref.watch(playerTagRepositoryProvider).watchTags(teamId),
+);
+
+/// Tag ids per member id. Coach-only, like [playerTagsProvider].
+final playerTagAssignmentsProvider =
+    StreamProvider.family<PlayerTagAssignments, String>(
+      (ref, teamId) =>
+          ref.watch(playerTagRepositoryProvider).watchAssignments(teamId),
+    );
 
 final authStateProvider = StreamProvider<User?>(
   (ref) => ref.watch(authRepositoryProvider).authStateChanges(),

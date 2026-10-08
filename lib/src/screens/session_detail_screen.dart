@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/player_tag.dart';
 import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
+import '../theme/app_theme.dart';
 import '../utils/search_text.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
@@ -25,6 +27,14 @@ class SessionDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
+  final _selection = CoachPlayerSelection();
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final membership = ref.watch(currentMembershipProvider);
@@ -101,7 +111,11 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
             _SessionHeader(session: session),
             const SizedBox(height: 22),
             if (currentUser.isCoach)
-              _CoachAttendancePanel(session: session, currentUser: currentUser)
+              _CoachAttendancePanel(
+                session: session,
+                currentUser: currentUser,
+                selection: _selection,
+              )
             else
               _PlayerAttendancePanel(
                 session: session,
@@ -110,6 +124,22 @@ class _SessionDetailScreenState extends ConsumerState<SessionDetailScreen> {
           ],
         ),
       ),
+      // Fixed at the bottom so it stays visible however far the roster is
+      // scrolled.
+      bottomNavigationBar: currentUser.isCoach
+          ? ListenableBuilder(
+              listenable: _selection,
+              builder: (context, _) => _selection.active
+                  ? SessionPlayerSelectionBar(
+                      count: _selection.selectedIds.length,
+                      saving: _selection.saving,
+                      onCancel: _selection.clear,
+                      onSelectAll: _selection.selectAllVisible,
+                      onApply: () => _selection.onApply?.call(),
+                    )
+                  : const SizedBox.shrink(),
+            )
+          : null,
     );
   }
 
@@ -491,14 +521,55 @@ class _PlayerAttendancePanelState
   }
 }
 
+/// Players the coach has selected in a session's roster for a bulk status
+/// change. Owned by the screen so the selection bar can live in the
+/// scaffold's bottom bar, outside the scrolling content.
+class CoachPlayerSelection extends ChangeNotifier {
+  final Set<String> selectedIds = {};
+  bool saving = false;
+
+  /// Ids of the players currently visible with the active filters that can
+  /// be selected. Updated by the roster on every build, without notifying.
+  List<String> visibleIds = const [];
+
+  /// Opens the bulk status editor. Set by the roster on every build.
+  VoidCallback? onApply;
+
+  bool get active => selectedIds.isNotEmpty;
+
+  void toggle(String memberId) {
+    if (!selectedIds.add(memberId)) {
+      selectedIds.remove(memberId);
+    }
+    notifyListeners();
+  }
+
+  void selectAllVisible() {
+    selectedIds.addAll(visibleIds);
+    notifyListeners();
+  }
+
+  void clear() {
+    selectedIds.clear();
+    notifyListeners();
+  }
+
+  void setSaving(bool value) {
+    saving = value;
+    notifyListeners();
+  }
+}
+
 class _CoachAttendancePanel extends ConsumerStatefulWidget {
   const _CoachAttendancePanel({
     required this.session,
     required this.currentUser,
+    required this.selection,
   });
 
   final TeamSession session;
   final TeamRosterMember currentUser;
+  final CoachPlayerSelection selection;
 
   @override
   ConsumerState<_CoachAttendancePanel> createState() =>
@@ -507,14 +578,55 @@ class _CoachAttendancePanel extends ConsumerStatefulWidget {
 
 class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
   AttendanceStatus? _selectedStatus;
-  bool _selectionMode = false;
-  bool _bulkSaving = false;
-  final Set<String> _selectedMemberIds = {};
+  String? _selectedTagId;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  late Stream<List<TeamRosterMember>> _membersStream;
+  late Stream<Map<String, AttendanceRecord>> _attendanceStream;
+
+  CoachPlayerSelection get _selection => widget.selection;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribe();
+    _selection.addListener(_onSelectionChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CoachAttendancePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session.id != widget.session.id ||
+        oldWidget.session.teamId != widget.session.teamId) {
+      _subscribe();
+    }
+    if (oldWidget.selection != widget.selection) {
+      oldWidget.selection.removeListener(_onSelectionChanged);
+      widget.selection.addListener(_onSelectionChanged);
+    }
+  }
+
+  /// Opens the Firestore listeners once per session instead of on every
+  /// rebuild (a new stream makes StreamBuilder resubscribe).
+  void _subscribe() {
+    _membersStream = ref
+        .read(teamRepositoryProvider)
+        .watchTeamMembers(widget.session.teamId);
+    _attendanceStream = ref
+        .read(attendanceRepositoryProvider)
+        .watchSessionAttendance(widget.session.id);
+  }
+
+  void _onSelectionChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   void dispose() {
+    _selection.removeListener(_onSelectionChanged);
+    _selection.onApply = null;
     _searchController.dispose();
     super.dispose();
   }
@@ -524,35 +636,10 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
     setState(() => _searchQuery = '');
   }
 
-  void _enterSelectionMode(String memberId) {
-    setState(() {
-      _selectionMode = true;
-      _selectedMemberIds.add(memberId);
-    });
-  }
-
-  void _toggleSelection(String memberId) {
-    setState(() {
-      if (!_selectedMemberIds.add(memberId)) {
-        _selectedMemberIds.remove(memberId);
-      }
-      if (_selectedMemberIds.isEmpty) {
-        _selectionMode = false;
-      }
-    });
-  }
-
-  void _exitSelectionMode() {
-    setState(() {
-      _selectionMode = false;
-      _selectedMemberIds.clear();
-    });
-  }
-
   Future<void> _applyBulkStatus({
     required Map<String, AttendanceRecord> attendance,
   }) async {
-    final members = _selectedMemberIds
+    final members = _selection.selectedIds
         .map((id) => attendance[id])
         .whereType<AttendanceRecord>()
         .toList();
@@ -568,7 +655,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
     if (draft == null || !mounted) {
       return;
     }
-    setState(() => _bulkSaving = true);
+    _selection.setSaving(true);
     try {
       await ref
           .read(attendanceRepositoryProvider)
@@ -587,7 +674,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
         message: 'Asistencia actualizada para ${members.length} jugadores.',
         type: AppNotificationType.success,
       );
-      _exitSelectionMode();
+      _selection.clear();
     } on FirebaseException {
       if (mounted) {
         showAppNotification(
@@ -598,7 +685,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
       }
     } finally {
       if (mounted) {
-        setState(() => _bulkSaving = false);
+        _selection.setSaving(false);
       }
     }
   }
@@ -607,10 +694,24 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
   Widget build(BuildContext context) {
     final session = widget.session;
     final currentUser = widget.currentUser;
-    final teamRepository = ref.watch(teamRepositoryProvider);
-    final attendanceRepository = ref.watch(attendanceRepositoryProvider);
+    // Coach-only data: security rules deny players, so these providers must
+    // only be watched from this panel. Tags never block the roster: while
+    // loading or on error the tag section is simply hidden.
+    final tagsState = ref.watch(playerTagsProvider(session.teamId));
+    final assignmentsState = ref.watch(
+      playerTagAssignmentsProvider(session.teamId),
+    );
+    final tagDataReady =
+        !tagsState.hasError &&
+        !assignmentsState.hasError &&
+        tagsState.hasValue &&
+        assignmentsState.hasValue;
+    final tags = tagDataReady ? tagsState.value! : const <PlayerTag>[];
+    final PlayerTagAssignments assignments = tagDataReady
+        ? assignmentsState.value!
+        : const {};
     return StreamBuilder<List<TeamRosterMember>>(
-      stream: teamRepository.watchTeamMembers(session.teamId),
+      stream: _membersStream,
       builder: (context, membersSnapshot) {
         if (membersSnapshot.hasError) {
           return const Text('No se pudo cargar la plantilla.');
@@ -622,7 +723,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
             .where((member) => member.role == UserRole.player)
             .toList();
         return StreamBuilder<Map<String, AttendanceRecord>>(
-          stream: attendanceRepository.watchSessionAttendance(session.id),
+          stream: _attendanceStream,
           builder: (context, attendanceSnapshot) {
             final savedAttendance =
                 attendanceSnapshot.data ?? const <String, AttendanceRecord>{};
@@ -637,15 +738,58 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
             };
             final showSearch = members.length > playerSearchThreshold;
             final query = showSearch ? _searchQuery.trim() : '';
-            final visibleMembers = members
-                .where(
-                  (member) =>
-                      _selectedStatus == null ||
-                      attendance[member.id]!.status == _selectedStatus,
-                )
-                .where((member) => matchesSearchQuery(member.fullName, query))
-                .toList();
-            final isFiltered = _selectedStatus != null || query.isNotEmpty;
+            final tagCounts = countMembersByTag(
+              memberIds: members.map((member) => member.id),
+              assignments: assignments,
+              tags: tags,
+            );
+            final attendingTagCounts = countMembersByTag(
+              memberIds: members
+                  .where(
+                    (member) => attendance[member.id]!.status.countsAsAttending,
+                  )
+                  .map((member) => member.id),
+              assignments: assignments,
+              tags: tags,
+            );
+            final selectedTagId = resolveSessionTagFilter(
+              selectedTagId: _selectedTagId,
+              tagCounts: tagCounts,
+            );
+            if (tagDataReady &&
+                _selectedTagId != null &&
+                selectedTagId == null) {
+              // The selected tag was deleted or no longer has players: drop
+              // the invisible filter so it does not come back unexpectedly.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  setState(() => _selectedTagId = null);
+                }
+              });
+            }
+            final visibleMembers = filterSessionMembers(
+              members: members,
+              attendance: attendance,
+              status: _selectedStatus,
+              tagId: selectedTagId,
+              assignments: assignments,
+              tags: tags,
+              query: query,
+            );
+            // Players who joined after this session can't get a status for
+            // it, so "Seleccionar todos" leaves them out.
+            _selection.visibleIds = [
+              for (final member in visibleMembers)
+                if (attendance[member.id]!.status !=
+                    AttendanceStatus.notApplicable)
+                  member.id,
+            ];
+            _selection.onApply = () => _applyBulkStatus(attendance: attendance);
+            final selectionMode = _selection.active;
+            final isFiltered =
+                _selectedStatus != null ||
+                selectedTagId != null ||
+                query.isNotEmpty;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -659,6 +803,14 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                   selectedStatus: _selectedStatus,
                   onStatusSelected: (status) =>
                       setState(() => _selectedStatus = status),
+                ),
+                SessionTagSummary(
+                  tags: tags,
+                  tagCounts: tagCounts,
+                  attendingCounts: attendingTagCounts,
+                  selectedTagId: selectedTagId,
+                  onTagSelected: (tagId) =>
+                      setState(() => _selectedTagId = tagId),
                 ),
                 const SizedBox(height: 22),
                 Text(
@@ -692,16 +844,6 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                           setState(() => _searchQuery = value),
                     ),
                   ),
-                if (_selectionMode)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _BulkSelectionToolbar(
-                      selectedCount: _selectedMemberIds.length,
-                      saving: _bulkSaving,
-                      onApply: () => _applyBulkStatus(attendance: attendance),
-                      onCancel: _exitSelectionMode,
-                    ),
-                  ),
                 if (members.isEmpty)
                   const EmptyState(
                     icon: Icons.group_off_outlined,
@@ -714,13 +856,11 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                         ? Icons.filter_alt_off_outlined
                         : Icons.search_off_outlined,
                     title: 'Sin jugadores',
-                    message: query.isEmpty
-                        ? 'Ningún jugador tiene este estado de asistencia.'
-                        : _selectedStatus == null
-                        ? 'Ningún jugador coincide con '
-                              '"$query".'
-                        : 'Ningún jugador con este estado coincide con '
-                              '"$query".',
+                    message: sessionFilterEmptyMessage(
+                      hasStatus: _selectedStatus != null,
+                      hasTag: selectedTagId != null,
+                      query: query,
+                    ),
                   )
                 else
                   ...visibleMembers.map((member) {
@@ -730,16 +870,16 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                       child: CoachAttendanceListItem(
                         member: member,
                         record: record,
-                        selectionMode: _selectionMode,
-                        selected: _selectedMemberIds.contains(member.id),
+                        selectionMode: selectionMode,
+                        selected: _selection.selectedIds.contains(member.id),
                         updateLabel: record.updatedAt == null
                             ? record.status == AttendanceStatus.notApplicable
                                   ? 'Se unió después de esta sesión'
                                   : 'Estado predeterminado'
                             : _formatUpdatedAt(record.updatedAt!),
                         onTap: () async {
-                          if (_selectionMode) {
-                            _toggleSelection(member.id);
+                          if (selectionMode) {
+                            _selection.toggle(member.id);
                             return;
                           }
                           final draft = await showAttendanceEditor(
@@ -759,7 +899,9 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                             );
                           }
                         },
-                        onLongPress: () => _enterSelectionMode(member.id),
+                        onLongPress: selectionMode
+                            ? null
+                            : () => _selection.toggle(member.id),
                       ),
                     );
                   }),
@@ -861,48 +1003,261 @@ class CoachAttendanceListItem extends StatelessWidget {
   }
 }
 
-class _BulkSelectionToolbar extends StatelessWidget {
-  const _BulkSelectionToolbar({
-    required this.selectedCount,
+/// The roster members visible in a session with the given filters, combined
+/// with AND. A [tagId] that is not in [tags] (e.g. a deleted tag) is ignored.
+List<TeamRosterMember> filterSessionMembers({
+  required List<TeamRosterMember> members,
+  required Map<String, AttendanceRecord> attendance,
+  AttendanceStatus? status,
+  String? tagId,
+  PlayerTagAssignments assignments = const {},
+  List<PlayerTag> tags = const [],
+  String query = '',
+}) {
+  final activeTagId = tags.any((tag) => tag.id == tagId) ? tagId : null;
+  return members
+      .where(
+        (member) => status == null || attendance[member.id]?.status == status,
+      )
+      .where(
+        (member) =>
+            activeTagId == null ||
+            (assignments[member.id]?.contains(activeTagId) ?? false),
+      )
+      .where((member) => matchesSearchQuery(member.fullName, query))
+      .toList();
+}
+
+/// [selectedTagId] when that tag still has players, otherwise null, so a
+/// deleted or emptied tag never leaves an invisible filter behind.
+String? resolveSessionTagFilter({
+  required String? selectedTagId,
+  required Map<String, int> tagCounts,
+}) {
+  if (selectedTagId == null) {
+    return null;
+  }
+  return (tagCounts[selectedTagId] ?? 0) > 0 ? selectedTagId : null;
+}
+
+/// Empty-state message when the session roster filters match nobody.
+String sessionFilterEmptyMessage({
+  required bool hasStatus,
+  required bool hasTag,
+  required String query,
+}) {
+  if (query.isEmpty) {
+    if (hasTag && hasStatus) {
+      return 'Ningún jugador con esta etiqueta tiene este estado de '
+          'asistencia.';
+    }
+    if (hasTag) {
+      return 'Ningún jugador tiene esta etiqueta.';
+    }
+    return 'Ningún jugador tiene este estado de asistencia.';
+  }
+  if (hasTag && hasStatus) {
+    return 'Ningún jugador con esta etiqueta y este estado coincide con '
+        '"$query".';
+  }
+  if (hasTag) {
+    return 'Ningún jugador con esta etiqueta coincide con "$query".';
+  }
+  if (hasStatus) {
+    return 'Ningún jugador con este estado coincide con "$query".';
+  }
+  return 'Ningún jugador coincide con "$query".';
+}
+
+/// Bottom bar shown while the coach selects players in a session roster.
+class SessionPlayerSelectionBar extends StatelessWidget {
+  const SessionPlayerSelectionBar({
+    required this.count,
     required this.saving,
-    required this.onApply,
     required this.onCancel,
+    required this.onSelectAll,
+    required this.onApply,
+    super.key,
   });
 
-  final int selectedCount;
+  final int count;
   final bool saving;
-  final VoidCallback onApply;
   final VoidCallback onCancel;
+  final VoidCallback onSelectAll;
+  final VoidCallback onApply;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Row(
-          children: [
-            IconButton(
-              tooltip: 'Cancelar selección',
-              onPressed: saving ? null : onCancel,
-              icon: const Icon(Icons.close),
+    return Material(
+      key: const ValueKey('player-selection-bottom-bar'),
+      color: Colors.white,
+      elevation: 18,
+      shadowColor: AppTheme.navy.withValues(alpha: 0.25),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: Align(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      key: const ValueKey('clear-player-selection'),
+                      tooltip: 'Cancelar selección',
+                      onPressed: saving ? null : onCancel,
+                      icon: const Icon(Icons.close),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        count == 1
+                            ? '1 jugador seleccionado'
+                            : '$count jugadores seleccionados',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('select-all-players'),
+                        onPressed: saving ? null : onSelectAll,
+                        icon: const Icon(Icons.select_all),
+                        label: const Text('Seleccionar todos'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        key: const ValueKey('apply-player-status'),
+                        onPressed: saving || count == 0 ? null : onApply,
+                        icon: saving
+                            ? const SizedBox.square(
+                                dimension: 17,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.done_all),
+                        label: Text(saving ? 'Aplicando…' : 'Aplicar estado'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            Expanded(
-              child: Text(
-                '$selectedCount seleccionado${selectedCount == 1 ? '' : 's'}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: saving || selectedCount == 0 ? null : onApply,
-              icon: saving
-                  ? const SizedBox.square(
-                      dimension: 17,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.done_all),
-              label: Text(saving ? 'Aplicando…' : 'Aplicar estado'),
-            ),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SessionTagSummary extends StatelessWidget {
+  const SessionTagSummary({
+    required this.tags,
+    required this.tagCounts,
+    required this.attendingCounts,
+    required this.selectedTagId,
+    required this.onTagSelected,
+    super.key,
+  });
+
+  final List<PlayerTag> tags;
+
+  /// Players carrying each tag, the denominator of each chip.
+  final Map<String, int> tagCounts;
+
+  /// Players carrying each tag whose status counts as attending (attending,
+  /// late, late unannounced, court only).
+  final Map<String, int> attendingCounts;
+  final String? selectedTagId;
+  final ValueChanged<String?> onTagSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleTags = tags
+        .where((tag) => (tagCounts[tag.id] ?? 0) > 0)
+        .toList();
+    if (visibleTags.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Etiquetas', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in visibleTags)
+                FilterChip(
+                  key: ValueKey('session-tag-chip-${tag.id}'),
+                  avatar: const Icon(Icons.label_outline, size: 18),
+                  showCheckmark: false,
+                  selected: tag.id == selectedTagId,
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(tag.name),
+                      const SizedBox(width: 8),
+                      _TagAttendanceBadge(
+                        key: ValueKey('session-tag-count-${tag.id}'),
+                        attending: attendingCounts[tag.id] ?? 0,
+                        total: tagCounts[tag.id] ?? 0,
+                      ),
+                    ],
+                  ),
+                  onSelected: (_) =>
+                      onTagSelected(tag.id == selectedTagId ? null : tag.id),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The `attending/total` count shown next to a tag name, set apart from the
+/// name as a small pill.
+class _TagAttendanceBadge extends StatelessWidget {
+  const _TagAttendanceBadge({
+    required this.attending,
+    required this.total,
+    super.key,
+  });
+
+  final int attending;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$attending/$total',
+        style: TextStyle(
+          color: primary,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+          fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
     );

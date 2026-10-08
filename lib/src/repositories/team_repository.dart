@@ -631,6 +631,14 @@ class TeamRepository {
             transaction.delete(memberReference);
           }
           transaction.delete(membershipReference);
+          // The managed player is gone for good: drop their coach-only tags.
+          transaction.delete(
+            _firestore
+                .collection('teams')
+                .doc(teamId)
+                .collection('playerTagAssignments')
+                .doc(memberId),
+          );
           return;
         }
         transaction.set(

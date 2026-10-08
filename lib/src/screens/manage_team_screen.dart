@@ -5,16 +5,20 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/app_user.dart';
+import '../models/player_tag.dart';
 import '../models/team_membership.dart';
 import '../providers.dart';
+import '../repositories/player_tag_repository.dart';
 import '../repositories/team_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/team_invitation.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/async_state_view.dart';
+import '../widgets/player_tag_editor.dart';
 
 enum TeamMemberAction {
+  editTags,
   makeCoach,
   makePlayer,
   presumeAttending,
@@ -36,6 +40,7 @@ List<TeamMemberAction> availableTeamMemberActions({
     return const [TeamMemberAction.makePlayer, TeamMemberAction.remove];
   }
   return [
+    TeamMemberAction.editTags,
     if (!member.managedByCoach) TeamMemberAction.makeCoach,
     member.attendancePresumption == AttendancePresumption.attending
         ? TeamMemberAction.presumeAbsent
@@ -54,6 +59,7 @@ class ManageTeamScreen extends ConsumerStatefulWidget {
 class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
   String? _busyMemberId;
   bool _addingPlayer = false;
+  bool _busyTags = false;
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +69,16 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     }
     final teamId = currentUser.teamId;
     final repository = ref.watch(teamRepositoryProvider);
+    // Tags are coach-only: never subscribe to them for players.
+    final tagsState = currentUser.isCoach
+        ? ref.watch(playerTagsProvider(teamId))
+        : null;
+    final assignmentsState = currentUser.isCoach
+        ? ref.watch(playerTagAssignmentsProvider(teamId))
+        : null;
+    final tags = tagsState?.value ?? const <PlayerTag>[];
+    final assignments =
+        assignmentsState?.value ?? const <String, List<String>>{};
     return Scaffold(
       appBar: AppBar(title: const Text('Administrar equipo')),
       body: AppPageBody(
@@ -113,6 +129,13 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                 final players = members
                     .where((member) => !member.isCoach)
                     .toList();
+                // Members are already active-only, so this counts active
+                // players.
+                final tagCounts = countMembersByTag(
+                  memberIds: players.map((player) => player.id),
+                  assignments: assignments,
+                  tags: tags,
+                );
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -139,6 +162,26 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                         label: const Text('Añadir jugador sin cuenta'),
                       ),
                     ),
+                    if (tagsState != null && assignmentsState != null) ...[
+                      const SizedBox(height: 18),
+                      PlayerTagCatalogCard(
+                        tags: tags,
+                        counts: tagCounts,
+                        loading:
+                            !tagsState.hasValue || !assignmentsState.hasValue,
+                        hasError:
+                            tagsState.hasError || assignmentsState.hasError,
+                        busy: _busyTags,
+                        onCreate: () => _createTag(tags),
+                        onTagSelected: (tag) => _showTagOptions(
+                          tag,
+                          tags,
+                          tagCounts[tag.id] ?? 0,
+                          players: players,
+                          assignments: assignments,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 26),
                     _MemberSection(
                       title: 'Entrenadores',
@@ -158,6 +201,8 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
                       team: team,
                       busyMemberId: _busyMemberId,
                       onAction: _handleAction,
+                      tags: tags,
+                      tagAssignments: assignments,
                     ),
                   ],
                 );
@@ -337,6 +382,10 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     if (currentUser == null) {
       return;
     }
+    if (action == TeamMemberAction.editTags) {
+      await _editMemberTags(member);
+      return;
+    }
     final confirmed = await _confirmAction(member, action);
     if (!confirmed || !mounted) {
       return;
@@ -346,6 +395,9 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     try {
       final repository = ref.read(teamRepositoryProvider);
       switch (action) {
+        case TeamMemberAction.editTags:
+          // Handled by _editMemberTags before reaching this point.
+          return;
         case TeamMemberAction.makeCoach:
           await repository.updateMemberRole(
             teamId: currentUser.teamId,
@@ -390,6 +442,8 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
         showAppNotification(
           context,
           message: switch (action) {
+            TeamMemberAction.editTags =>
+              'Etiquetas de ${member.fullName} actualizadas.',
             TeamMemberAction.makeCoach =>
               '${member.fullName} ahora es entrenador.',
             TeamMemberAction.makePlayer =>
@@ -427,11 +481,381 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
     }
   }
 
+  Future<void> _editMemberTags(TeamRosterMember member) async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null || !currentUser.isCoach) {
+      return;
+    }
+    final teamId = currentUser.teamId;
+    final tagsState = ref.read(playerTagsProvider(teamId));
+    final assignmentsState = ref.read(playerTagAssignmentsProvider(teamId));
+    if (!tagsState.hasValue || !assignmentsState.hasValue) {
+      showAppNotification(
+        context,
+        message: 'Las etiquetas aún no están disponibles. Inténtalo de nuevo.',
+        type: AppNotificationType.error,
+      );
+      return;
+    }
+    final catalog = tagsState.requireValue;
+    final initialTagIds = tagIdsFor(
+      memberId: member.id,
+      assignments: assignmentsState.requireValue,
+      tags: catalog,
+    );
+    final repository = ref.read(playerTagRepositoryProvider);
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: PlayerTagEditor(
+          playerName: member.fullName,
+          catalog: catalog,
+          initialTagIds: initialTagIds,
+          onCreateTag: (name, existing) async {
+            try {
+              final id = await repository.createTag(
+                teamId: teamId,
+                name: name,
+                actingUserId: currentUser.id,
+                existing: existing,
+              );
+              return PlayerTag(id: id, name: name.trim());
+            } on FirebaseException {
+              throw const PlayerTagException('No se pudo crear la etiqueta.');
+            }
+          },
+          onSave: (tagIds, latestCatalog) async {
+            try {
+              await repository.setMemberTags(
+                teamId: teamId,
+                memberId: member.id,
+                tagIds: tagIds,
+                catalog: latestCatalog,
+                actingUserId: currentUser.id,
+              );
+              if (sheetContext.mounted) {
+                Navigator.of(sheetContext).pop(true);
+              }
+            } on PlayerTagException catch (error) {
+              if (mounted) {
+                showAppNotification(
+                  context,
+                  message: error.message,
+                  type: AppNotificationType.error,
+                );
+              }
+            } on FirebaseException {
+              if (mounted) {
+                showAppNotification(
+                  context,
+                  message: 'No se pudieron guardar las etiquetas.',
+                  type: AppNotificationType.error,
+                );
+              }
+            }
+          },
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      showAppNotification(
+        context,
+        message: 'Etiquetas de ${member.fullName} actualizadas.',
+        type: AppNotificationType.success,
+      );
+    }
+  }
+
+  Future<void> _createTag(List<PlayerTag> tags) async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null) {
+      return;
+    }
+    final name = await showPlayerTagNameDialog(context, existing: tags);
+    if (name == null || !mounted) {
+      return;
+    }
+    await _runTagOperation(
+      () => ref
+          .read(playerTagRepositoryProvider)
+          .createTag(
+            teamId: currentUser.teamId,
+            name: name,
+            actingUserId: currentUser.id,
+            existing: tags,
+          ),
+      successMessage: 'Etiqueta «$name» creada.',
+      errorMessage: 'No se pudo crear la etiqueta.',
+    );
+  }
+
+  Future<void> _showTagOptions(
+    PlayerTag tag,
+    List<PlayerTag> tags,
+    int playerCount, {
+    required List<TeamRosterMember> players,
+    required PlayerTagAssignments assignments,
+  }) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                tag.name,
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+              subtitle: Text(
+                playerCount == 1 ? '1 jugador' : '$playerCount jugadores',
+              ),
+            ),
+            ListTile(
+              key: const ValueKey('assign-player-tag'),
+              leading: const Icon(Icons.group_add_outlined),
+              title: const Text('Asignar a jugadores…'),
+              onTap: () => Navigator.pop(sheetContext, 'assign'),
+            ),
+            ListTile(
+              key: const ValueKey('rename-player-tag'),
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Renombrar'),
+              onTap: () => Navigator.pop(sheetContext, 'rename'),
+            ),
+            ListTile(
+              key: const ValueKey('delete-player-tag'),
+              leading: Icon(
+                Icons.delete_outline,
+                color: Theme.of(sheetContext).colorScheme.error,
+              ),
+              title: Text(
+                'Eliminar',
+                style: TextStyle(
+                  color: Theme.of(sheetContext).colorScheme.error,
+                ),
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (choice == 'assign') {
+      await _assignTagToPlayers(tag, tags, players, assignments);
+    } else if (choice == 'rename') {
+      await _renameTag(tag, tags);
+    } else if (choice == 'delete') {
+      await _deleteTag(tag, playerCount);
+    }
+  }
+
+  Future<void> _assignTagToPlayers(
+    PlayerTag tag,
+    List<PlayerTag> tags,
+    List<TeamRosterMember> players,
+    PlayerTagAssignments assignments,
+  ) async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null) {
+      return;
+    }
+    final initialMemberIds = {
+      for (final player in players)
+        if (tagIdsFor(
+          memberId: player.id,
+          assignments: assignments,
+          tags: tags,
+        ).contains(tag.id))
+          player.id,
+    };
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => PlayerTagMembersEditor(
+        tag: tag,
+        players: [
+          for (final player in players)
+            (
+              id: player.id,
+              name: player.fullName,
+              atLimit: isAtTagLimitFor(
+                memberId: player.id,
+                tagId: tag.id,
+                assignments: assignments,
+                tags: tags,
+              ),
+            ),
+        ],
+        initialMemberIds: initialMemberIds,
+        onSave: (added, removed) async {
+          try {
+            await ref
+                .read(playerTagRepositoryProvider)
+                .setTagMembers(
+                  teamId: currentUser.teamId,
+                  tagId: tag.id,
+                  addMemberIds: added,
+                  removeMemberIds: removed,
+                  actingUserId: currentUser.id,
+                );
+            if (sheetContext.mounted) {
+              Navigator.of(sheetContext).pop(true);
+            }
+          } on FirebaseException {
+            if (mounted) {
+              showAppNotification(
+                context,
+                message: 'No se pudieron asignar las etiquetas.',
+                type: AppNotificationType.error,
+              );
+            }
+          }
+        },
+      ),
+    );
+    if (saved == true && mounted) {
+      showAppNotification(
+        context,
+        message: 'Etiqueta «${tag.name}» actualizada.',
+        type: AppNotificationType.success,
+      );
+    }
+  }
+
+  Future<void> _renameTag(PlayerTag tag, List<PlayerTag> tags) async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null) {
+      return;
+    }
+    final name = await showPlayerTagNameDialog(
+      context,
+      existing: tags,
+      title: 'Renombrar etiqueta',
+      confirmLabel: 'Guardar',
+      initialName: tag.name,
+      renamingTagId: tag.id,
+    );
+    if (name == null || name == tag.name || !mounted) {
+      return;
+    }
+    await _runTagOperation(
+      () => ref
+          .read(playerTagRepositoryProvider)
+          .renameTag(
+            teamId: currentUser.teamId,
+            tagId: tag.id,
+            name: name,
+            existing: tags,
+          ),
+      successMessage: 'Etiqueta renombrada a «$name».',
+      errorMessage: 'No se pudo renombrar la etiqueta.',
+    );
+  }
+
+  Future<void> _deleteTag(PlayerTag tag, int playerCount) async {
+    final currentUser = ref.read(currentMembershipProvider);
+    if (currentUser == null) {
+      return;
+    }
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            icon: const Icon(Icons.delete_outline),
+            title: Text('Eliminar «${tag.name}»'),
+            content: Text(
+              playerCount == 1
+                  ? 'Se quitará de 1 jugador.'
+                  : 'Se quitará de $playerCount jugadores.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                key: const ValueKey('confirm-delete-player-tag'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                ),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Eliminar'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) {
+      return;
+    }
+    await _runTagOperation(
+      () => ref
+          .read(playerTagRepositoryProvider)
+          .deleteTag(
+            teamId: currentUser.teamId,
+            tagId: tag.id,
+            actingUserId: currentUser.id,
+          ),
+      successMessage: 'Etiqueta «${tag.name}» eliminada.',
+      errorMessage: 'No se pudo eliminar la etiqueta.',
+    );
+  }
+
+  Future<void> _runTagOperation(
+    Future<void> Function() operation, {
+    required String successMessage,
+    required String errorMessage,
+  }) async {
+    setState(() => _busyTags = true);
+    try {
+      await operation();
+      if (mounted) {
+        showAppNotification(
+          context,
+          message: successMessage,
+          type: AppNotificationType.success,
+        );
+      }
+    } on PlayerTagException catch (error) {
+      if (mounted) {
+        showAppNotification(
+          context,
+          message: error.message,
+          type: AppNotificationType.error,
+        );
+      }
+    } on FirebaseException {
+      if (mounted) {
+        showAppNotification(
+          context,
+          message: errorMessage,
+          type: AppNotificationType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busyTags = false);
+      }
+    }
+  }
+
   Future<bool> _confirmAction(
     TeamRosterMember member,
     TeamMemberAction action,
   ) async {
     final title = switch (action) {
+      TeamMemberAction.editTags => 'Etiquetas',
       TeamMemberAction.makeCoach => 'Hacer entrenador',
       TeamMemberAction.makePlayer => 'Hacer jugador',
       TeamMemberAction.presumeAttending => 'Presumir asistencia',
@@ -439,6 +863,7 @@ class _ManageTeamScreenState extends ConsumerState<ManageTeamScreen> {
       TeamMemberAction.remove => 'Expulsar del equipo',
     };
     final message = switch (action) {
+      TeamMemberAction.editTags => 'Asigna etiquetas a ${member.fullName}.',
       TeamMemberAction.makeCoach =>
         '${member.fullName} podrá crear sesiones, modificar asistencias y '
             'administrar miembros.',
@@ -655,6 +1080,8 @@ class _MemberSection extends StatelessWidget {
     required this.team,
     required this.busyMemberId,
     required this.onAction,
+    this.tags = const [],
+    this.tagAssignments = const {},
   });
 
   final String title;
@@ -663,7 +1090,10 @@ class _MemberSection extends StatelessWidget {
   final TeamRosterMember currentUser;
   final Team team;
   final String? busyMemberId;
-  final void Function(TeamRosterMember member, TeamMemberAction action) onAction;
+  final void Function(TeamRosterMember member, TeamMemberAction action)
+  onAction;
+  final List<PlayerTag> tags;
+  final PlayerTagAssignments tagAssignments;
 
   @override
   Widget build(BuildContext context) {
@@ -689,6 +1119,8 @@ class _MemberSection extends StatelessWidget {
                 team: team,
                 busy: busyMemberId == member.id,
                 onAction: (action) => onAction(member, action),
+                tags: tags,
+                tagAssignments: tagAssignments,
               ),
             ),
           ),
@@ -704,6 +1136,8 @@ class TeamMemberCard extends StatelessWidget {
     required this.team,
     required this.busy,
     required this.onAction,
+    this.tags = const [],
+    this.tagAssignments = const {},
     super.key,
   });
 
@@ -712,6 +1146,10 @@ class TeamMemberCard extends StatelessWidget {
   final Team team;
   final bool busy;
   final ValueChanged<TeamMemberAction> onAction;
+
+  /// The team's tag catalog; only provided to coaches.
+  final List<PlayerTag> tags;
+  final PlayerTagAssignments tagAssignments;
 
   @override
   Widget build(BuildContext context) {
@@ -722,6 +1160,14 @@ class TeamMemberCard extends StatelessWidget {
     );
     final isOwner = team.createdBy == member.id;
     final isCurrentUser = currentUser.id == member.id;
+    final tagNames = {for (final tag in tags) tag.id: tag.name};
+    final memberTagIds = member.isCoach
+        ? const <String>[]
+        : tagIdsFor(
+            memberId: member.id,
+            assignments: tagAssignments,
+            tags: tags,
+          );
     final initials = member.fullName
         .trim()
         .split(RegExp(r'\s+'))
@@ -808,6 +1254,12 @@ class TeamMemberCard extends StatelessWidget {
                         const _MemberTag(
                           label: 'Tú',
                           icon: Icons.check,
+                          highlighted: false,
+                        ),
+                      for (final tagId in memberTagIds)
+                        _MemberTag(
+                          label: tagNames[tagId]!,
+                          icon: Icons.label_outline,
                           highlighted: false,
                         ),
                     ],
@@ -909,6 +1361,7 @@ class _MemberTag extends StatelessWidget {
 
 extension on TeamMemberAction {
   String get label => switch (this) {
+    TeamMemberAction.editTags => 'Etiquetas…',
     TeamMemberAction.makeCoach => 'Hacer entrenador',
     TeamMemberAction.makePlayer => 'Hacer jugador',
     TeamMemberAction.presumeAttending => 'Presumir asistencia',
@@ -917,6 +1370,7 @@ extension on TeamMemberAction {
   };
 
   IconData get icon => switch (this) {
+    TeamMemberAction.editTags => Icons.label_outline,
     TeamMemberAction.makeCoach => Icons.admin_panel_settings_outlined,
     TeamMemberAction.makePlayer => Icons.person_outline,
     TeamMemberAction.presumeAttending => Icons.event_available_outlined,
