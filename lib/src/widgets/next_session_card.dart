@@ -264,14 +264,13 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                       _SummaryMetric(
                         icon: Icons.sports_basketball_outlined,
                         label: 'En pista',
-                        value: '${summary.courtCount}/${summary.totalPlayers}',
+                        value: summary.court.label,
                         color: const Color(0xFF2563A5),
                       ),
                       _SummaryMetric(
                         icon: Icons.fitness_center_outlined,
                         label: 'En físico',
-                        value:
-                            '${summary.physicalCount}/${summary.totalPlayers}',
+                        value: summary.physical.label,
                         color: const Color(0xFF7650A8),
                       ),
                     ];
@@ -310,12 +309,24 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                       ),
                       const SizedBox(width: 9),
                       Expanded(
-                        child: Text(
-                          summary.latePlayerNames.isEmpty
-                              ? 'Llegan tarde: nadie'
-                              : 'Llegan tarde: '
-                                    '${summary.latePlayerNames.join(', ')}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        child: Text.rich(
+                          TextSpan(
+                            text:
+                                'Llegan tarde: '
+                                '${summary.latePlayerNames.length}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            children: [
+                              if (summary.latePlayerNames.isNotEmpty)
+                                TextSpan(
+                                  text:
+                                      ' · '
+                                      '${summary.latePlayerNames.join(', ')}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ],

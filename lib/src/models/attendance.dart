@@ -155,22 +155,77 @@ enum AttendanceStatus {
   }
 }
 
-int countAttendingPlayers({
+/// Attendance of a session split by attendance presumption: [attending] of
+/// the [expected] players presumed to attend do attend, plus [extra] players
+/// presumed absent who attend anyway. Players who are not applicable or not
+/// called up (`no_convocado`) are left out of both groups.
+class PresumptionAttendanceCount {
+  const PresumptionAttendanceCount({
+    required this.attending,
+    required this.expected,
+    required this.extra,
+  });
+
+  final int attending;
+  final int expected;
+  final int extra;
+
+  /// `14/17 + 2`, or `14/17` when no presumed-absent player attends.
+  String get label =>
+      extra > 0 ? '$attending/$expected + $extra' : '$attending/$expected';
+}
+
+PresumptionAttendanceCount countPlayersByPresumption({
+  required Iterable<TeamRosterMember> members,
+  required Map<String, AttendanceRecord> attendance,
+  required DateTime sessionTime,
+  required bool Function(AttendanceStatus status) attends,
+}) {
+  var attending = 0;
+  var expected = 0;
+  var extra = 0;
+  for (final member in members) {
+    if (!member.active || member.role != UserRole.player) {
+      continue;
+    }
+    final status = resolveAttendanceStatus(
+      user: member,
+      explicitRecord: attendance[member.id],
+      sessionTime: sessionTime,
+    );
+    if (status == AttendanceStatus.notApplicable ||
+        status == AttendanceStatus.noConvocado) {
+      continue;
+    }
+    if (isPresumedAbsentAt(member: member, sessionTime: sessionTime)) {
+      if (attends(status)) {
+        extra++;
+      }
+      continue;
+    }
+    expected++;
+    if (attends(status)) {
+      attending++;
+    }
+  }
+  return PresumptionAttendanceCount(
+    attending: attending,
+    expected: expected,
+    extra: extra,
+  );
+}
+
+PresumptionAttendanceCount countAttendingPlayers({
   required Iterable<TeamRosterMember> members,
   required Map<String, AttendanceRecord> attendance,
   required DateTime sessionTime,
 }) {
-  return members
-      .where((member) => member.active && member.role == UserRole.player)
-      .where((member) {
-        final status = resolveAttendanceStatus(
-          user: member,
-          explicitRecord: attendance[member.id],
-          sessionTime: sessionTime,
-        );
-        return status.countsAsAttending;
-      })
-      .length;
+  return countPlayersByPresumption(
+    members: members,
+    attendance: attendance,
+    sessionTime: sessionTime,
+    attends: (status) => status.countsAsAttending,
+  );
 }
 
 AttendanceStatus resolveAttendanceStatus({
@@ -192,16 +247,46 @@ AttendanceStatus resolveAttendanceStatus({
 
 class CoachAttendanceSummary {
   const CoachAttendanceSummary({
-    required this.courtCount,
-    required this.physicalCount,
+    required this.court,
+    required this.physical,
     required this.latePlayerNames,
-    required this.totalPlayers,
   });
 
-  final int courtCount;
-  final int physicalCount;
+  final PresumptionAttendanceCount court;
+  final PresumptionAttendanceCount physical;
   final List<String> latePlayerNames;
-  final int totalPlayers;
+
+  int get courtCount => court.attending;
+  int get physicalCount => physical.attending;
+  int get totalPlayers => court.expected;
+}
+
+/// Maps each full name to the shortest unambiguous form within [fullNames]:
+/// the first name when no one else shares it, otherwise first name plus first
+/// surname, falling back to the full name if that still collides.
+Map<String, String> buildShortPlayerNames(Iterable<String> fullNames) {
+  List<String> words(String name) =>
+      name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  String prefix(String name, int count) => words(name).take(count).join(' ');
+  Map<String, int> counts(Iterable<String> keys) {
+    final result = <String, int>{};
+    for (final key in keys) {
+      result.update(key.toLowerCase(), (n) => n + 1, ifAbsent: () => 1);
+    }
+    return result;
+  }
+
+  final names = fullNames.toList();
+  final firstNameCounts = counts(names.map((name) => prefix(name, 1)));
+  final twoWordCounts = counts(names.map((name) => prefix(name, 2)));
+  return {
+    for (final name in names)
+      name: firstNameCounts[prefix(name, 1).toLowerCase()] == 1
+          ? prefix(name, 1)
+          : twoWordCounts[prefix(name, 2).toLowerCase()] == 1
+          ? prefix(name, 2)
+          : name.trim(),
+  };
 }
 
 CoachAttendanceSummary buildCoachAttendanceSummary({
@@ -212,50 +297,48 @@ CoachAttendanceSummary buildCoachAttendanceSummary({
   final players = members
       .where((member) => member.active && member.role == UserRole.player)
       .toList();
-  var courtCount = 0;
-  var physicalCount = 0;
+  final shortNames = buildShortPlayerNames(
+    players.map((player) => player.fullName),
+  );
   final latePlayerNames = <String>[];
-
   for (final player in players) {
     final status = resolveAttendanceStatus(
       user: player,
       explicitRecord: attendance[player.id],
       sessionTime: sessionTime,
     );
-    final playerStatus = status.playerEquivalent;
-    if (playerStatus == AttendanceStatus.attending ||
-        playerStatus == AttendanceStatus.courtOnly ||
-        playerStatus == AttendanceStatus.late) {
-      courtCount++;
-    }
-    if (playerStatus == AttendanceStatus.attending ||
-        playerStatus == AttendanceStatus.gymOnly ||
-        playerStatus == AttendanceStatus.late) {
-      physicalCount++;
-    }
-    if (playerStatus == AttendanceStatus.late) {
-      latePlayerNames.add(player.fullName);
+    if (status.playerEquivalent == AttendanceStatus.late) {
+      latePlayerNames.add(shortNames[player.fullName] ?? player.fullName);
     }
   }
   latePlayerNames.sort(
     (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
   );
 
-  final eligiblePlayerCount = players.where((player) {
-    final status = resolveAttendanceStatus(
-      user: player,
-      explicitRecord: attendance[player.id],
-      sessionTime: sessionTime,
-    );
-    return status != AttendanceStatus.notApplicable &&
-        status != AttendanceStatus.noConvocado;
-  }).length;
-
   return CoachAttendanceSummary(
-    courtCount: courtCount,
-    physicalCount: physicalCount,
+    court: countPlayersByPresumption(
+      members: players,
+      attendance: attendance,
+      sessionTime: sessionTime,
+      attends: (status) => switch (status.playerEquivalent) {
+        AttendanceStatus.attending ||
+        AttendanceStatus.courtOnly ||
+        AttendanceStatus.late => true,
+        _ => false,
+      },
+    ),
+    physical: countPlayersByPresumption(
+      members: players,
+      attendance: attendance,
+      sessionTime: sessionTime,
+      attends: (status) => switch (status.playerEquivalent) {
+        AttendanceStatus.attending ||
+        AttendanceStatus.gymOnly ||
+        AttendanceStatus.late => true,
+        _ => false,
+      },
+    ),
     latePlayerNames: latePlayerNames,
-    totalPlayers: eligiblePlayerCount,
   );
 }
 

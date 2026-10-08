@@ -533,7 +533,7 @@ void main() {
         members: players,
         attendance: attendance,
         sessionTime: DateTime(2026, 8, 24),
-      ),
+      ).attending,
       4,
     );
   });
@@ -610,6 +610,25 @@ void main() {
     expect(summary.physicalCount, 4);
     expect(summary.totalPlayers, 5);
     expect(summary.latePlayerNames, ['Diego', 'Elena']);
+  });
+
+  test('short player names use first name only when it is unique', () {
+    expect(
+      buildShortPlayerNames([
+        'Diego Martín López',
+        'Pablo García Ruiz',
+        'pablo Sánchez Gil',
+        'Ana Pérez Díaz',
+        'Ana Pérez Mora',
+      ]),
+      {
+        'Diego Martín López': 'Diego',
+        'Pablo García Ruiz': 'Pablo García',
+        'pablo Sánchez Gil': 'pablo Sánchez',
+        'Ana Pérez Díaz': 'Ana Pérez Díaz',
+        'Ana Pérez Mora': 'Ana Pérez Mora',
+      },
+    );
   });
 
   test('coach-only attendance incidents are excluded from player options', () {

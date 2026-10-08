@@ -952,7 +952,7 @@ class _AttendingPlayerCount extends ConsumerWidget {
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  '$attending/${players.length} asisten',
+                  '${attending.label} asisten',
                   style: const TextStyle(
                     color: AppTheme.primary,
                     fontSize: 12,
