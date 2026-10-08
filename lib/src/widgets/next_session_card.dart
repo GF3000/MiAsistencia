@@ -292,31 +292,33 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                     );
                   },
                 ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB76505).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        Icons.schedule_outlined,
-                        color: Color(0xFFB76505),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Text.rich(
-                          TextSpan(
-                            text:
-                                'Llegan tarde: '
-                                '${summary.latePlayerNames.length}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                            children: [
-                              if (summary.latePlayerNames.isNotEmpty)
+                if (summary.latePlayerNames.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFB76505).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.schedule_outlined,
+                          color: Color(0xFFB76505),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              text:
+                                  'Llegan tarde: '
+                                  '${summary.latePlayerNames.length}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                              children: [
                                 TextSpan(
                                   text:
                                       ' · '
@@ -325,13 +327,14 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             );
           },
