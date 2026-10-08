@@ -33,6 +33,33 @@ class TeamException implements Exception {
   String toString() => message;
 }
 
+/// Throws unless [actor] is an active coach membership of [teamId].
+///
+/// Authorization comes from `teamMemberships`, mirroring `isTeamCoach` in
+/// firestore.rules. The legacy `users.teamId`/`users.role` mirror only
+/// reflects the user's *active* team, so a coach whose active team is a
+/// different one would be wrongly rejected if it were checked instead.
+void ensureActiveCoachMembership(
+  TeamMembership? actor,
+  String teamId, {
+  required String message,
+}) {
+  if (actor == null ||
+      actor.teamId != teamId ||
+      !actor.active ||
+      !actor.isCoach) {
+    throw TeamException(message);
+  }
+}
+
+/// Whether the member's legacy `users/{id}` mirror describes [teamId] and
+/// must be kept in sync. When the member's active team is another one, only
+/// the membership is written: the mirror (and the security rule guarding it)
+/// belongs to that other team.
+bool shouldMirrorLegacyProfile(AppUser? member, String teamId) {
+  return member != null && member.teamId == teamId;
+}
+
 enum _JoinOutcome {
   joined,
   alreadyMember,
@@ -484,26 +511,25 @@ class TeamRepository {
     }
 
     final teamReference = _firestore.collection('teams').doc(teamId);
-    final actorReference = _firestore.collection('users').doc(actingUserId);
+    final actorMembershipReference = _memberships
+        .doc(teamMembershipDocId(teamId, actingUserId));
     final playerReference = _firestore.collection('users').doc();
     final membershipReference = _memberships
         .doc(teamMembershipDocId(teamId, playerReference.id));
 
     await _firestore.runTransaction((transaction) async {
       final teamSnapshot = await transaction.get(teamReference);
-      final actorSnapshot = await transaction.get(actorReference);
+      final actorSnapshot = await transaction.get(actorMembershipReference);
       if (!teamSnapshot.exists) {
         throw const TeamException('El equipo ya no existe.');
       }
-      if (!actorSnapshot.exists) {
-        throw const TeamException('No se pudo comprobar tu acceso.');
-      }
-      final actor = AppUser.fromSnapshot(actorSnapshot);
-      if (actor.teamId != teamId || !actor.isCoach) {
-        throw const TeamException(
-          'Sólo los entrenadores pueden añadir jugadores.',
-        );
-      }
+      ensureActiveCoachMembership(
+        actorSnapshot.exists
+            ? TeamMembership.fromSnapshot(actorSnapshot)
+            : null,
+        teamId,
+        message: 'Sólo los entrenadores pueden añadir jugadores.',
+      );
 
       transaction.set(playerReference, {
         'email': '',
@@ -548,8 +574,8 @@ class TeamRepository {
       teamId: teamId,
       memberId: memberId,
       actingUserId: actingUserId,
-      validate: (member) {
-        if (member.managedByCoach && role == UserRole.admin) {
+      validate: (membership) {
+        if (membership.managedByCoach && role == UserRole.admin) {
           throw const TeamException(
             'Un jugador sin cuenta no puede ser entrenador.',
           );
@@ -559,26 +585,26 @@ class TeamRepository {
         transaction,
         memberReference,
         membershipReference,
-        member,
         membership,
+        mirrorLegacyProfile,
       ) {
-        transaction.update(memberReference, {
-          'role': role.firestoreValue,
-          'attendanceDefaultStatus':
-              AttendancePresumption.attending.firestoreValue,
-          'attendanceDefaultHistory': [],
-          'membershipWriteToken': _newWriteToken(),
-        });
-        if (membership != null) {
-          transaction.set(
-            membershipReference,
-            _existingMembershipData(
-              membership,
-              role: role,
-              attendancePresumption: AttendancePresumption.attending,
-              attendanceHistory: const [],
-            ),
-          );
+        transaction.set(
+          membershipReference,
+          _existingMembershipData(
+            membership,
+            role: role,
+            attendancePresumption: AttendancePresumption.attending,
+            attendanceHistory: const [],
+          ),
+        );
+        if (mirrorLegacyProfile) {
+          transaction.update(memberReference, {
+            'role': role.firestoreValue,
+            'attendanceDefaultStatus':
+                AttendancePresumption.attending.firestoreValue,
+            'attendanceDefaultHistory': [],
+            'membershipWriteToken': _newWriteToken(),
+          });
         }
       },
     );
@@ -597,29 +623,35 @@ class TeamRepository {
         transaction,
         memberReference,
         membershipReference,
-        member,
         membership,
+        mirrorLegacyProfile,
       ) {
-        if (member.managedByCoach) {
-          transaction.delete(memberReference);
+        if (membership.managedByCoach) {
+          if (mirrorLegacyProfile) {
+            transaction.delete(memberReference);
+          }
           transaction.delete(membershipReference);
           return;
         }
-        transaction.update(memberReference, {
-          'teamId': null,
-          'teamJoinedAt': null,
-          'role': UserRole.player.firestoreValue,
-          'attendanceDefaultStatus':
-              AttendancePresumption.attending.firestoreValue,
-          'attendanceDefaultHistory': [],
-          'activeTeamId': null,
-          'membershipWriteToken': _newWriteToken(),
-        });
-        if (membership != null) {
-          transaction.set(
-            membershipReference,
-            _existingMembershipData(membership, active: false, closeOpenPeriod: true),
-          );
+        transaction.set(
+          membershipReference,
+          _existingMembershipData(
+            membership,
+            active: false,
+            closeOpenPeriod: true,
+          ),
+        );
+        if (mirrorLegacyProfile) {
+          transaction.update(memberReference, {
+            'teamId': null,
+            'teamJoinedAt': null,
+            'role': UserRole.player.firestoreValue,
+            'attendanceDefaultStatus':
+                AttendancePresumption.attending.firestoreValue,
+            'attendanceDefaultHistory': [],
+            'activeTeamId': null,
+            'membershipWriteToken': _newWriteToken(),
+          });
         }
       },
     );
@@ -635,8 +667,8 @@ class TeamRepository {
       teamId: teamId,
       memberId: memberId,
       actingUserId: actingUserId,
-      validate: (member) {
-        if (member.isCoach) {
+      validate: (membership) {
+        if (membership.isCoach) {
           throw const TeamException(
             'La presunción de asistencia solo se aplica a jugadores.',
           );
@@ -646,38 +678,47 @@ class TeamRepository {
         transaction,
         memberReference,
         membershipReference,
-        member,
         membership,
+        mirrorLegacyProfile,
       ) {
-        final historyEntry = {
-          'status': value.firestoreValue,
-          'effectiveFrom': Timestamp.now(),
-        };
-        transaction.update(memberReference, {
-          'attendanceDefaultStatus': value.firestoreValue,
-          'attendanceDefaultHistory': FieldValue.arrayUnion([historyEntry]),
-          'membershipWriteToken': _newWriteToken(),
-        });
-        if (membership != null) {
-          transaction.set(
-            membershipReference,
-            _existingMembershipData(
-              membership,
-              attendancePresumption: value,
-              attendanceHistory: [
-                ...membership.attendancePresumptionHistory,
-                AttendancePresumptionChange(
-                  value: value,
-                  effectiveFrom: DateTime.now(),
-                ),
-              ],
-            ),
-          );
+        final effectiveFrom = DateTime.now();
+        transaction.set(
+          membershipReference,
+          _existingMembershipData(
+            membership,
+            attendancePresumption: value,
+            attendanceHistory: [
+              ...membership.attendancePresumptionHistory,
+              AttendancePresumptionChange(
+                value: value,
+                effectiveFrom: effectiveFrom,
+              ),
+            ],
+          ),
+        );
+        if (mirrorLegacyProfile) {
+          transaction.update(memberReference, {
+            'attendanceDefaultStatus': value.firestoreValue,
+            'attendanceDefaultHistory': FieldValue.arrayUnion([
+              {
+                'status': value.firestoreValue,
+                'effectiveFrom': Timestamp.fromDate(effectiveFrom),
+              },
+            ]),
+            'membershipWriteToken': _newWriteToken(),
+          });
         }
       },
     );
   }
 
+  /// Runs a coach action on [memberId]'s membership of [teamId].
+  ///
+  /// Both the acting coach and the target are resolved from
+  /// `teamMemberships`, never from the legacy `users` mirror, so the action
+  /// works regardless of which team either of them has active. The member's
+  /// `users/{id}` mirror is only rewritten when it describes [teamId]
+  /// (see [shouldMirrorLegacyProfile]).
   Future<void> _manageMember({
     required String teamId,
     required String memberId,
@@ -686,12 +727,12 @@ class TeamRepository {
       Transaction transaction,
       DocumentReference<Map<String, dynamic>> memberReference,
       DocumentReference<Map<String, dynamic>> membershipReference,
-      AppUser member,
-      TeamMembership? membership,
+      TeamMembership membership,
+      bool mirrorLegacyProfile,
     )
     update,
-    void Function(AppUser member)? validate,
-  }) {
+    void Function(TeamMembership membership)? validate,
+  }) async {
     if (memberId == actingUserId) {
       throw const TeamException(
         'No puedes cambiar tu propio acceso desde esta pantalla.',
@@ -699,33 +740,42 @@ class TeamRepository {
     }
 
     final teamReference = _firestore.collection('teams').doc(teamId);
-    final actorReference = _firestore.collection('users').doc(actingUserId);
+    final actorMembershipReference = _memberships
+        .doc(teamMembershipDocId(teamId, actingUserId));
     final memberReference = _firestore.collection('users').doc(memberId);
     final membershipReference = _memberships
         .doc(teamMembershipDocId(teamId, memberId));
 
-    return _firestore.runTransaction((transaction) async {
+    // Read outside the transaction: the rules only let a coach read a
+    // member's profile while it points at a team they belong to, so a member
+    // whose active team is another one is unreadable (and must not be
+    // mirrored). If the member switches teams before commit, the guarded
+    // profile write is rejected and the transaction fails cleanly.
+    final mirrorLegacyProfile = shouldMirrorLegacyProfile(
+      await _readProfileIfVisible(memberReference),
+      teamId,
+    );
+
+    await _firestore.runTransaction((transaction) async {
       final teamSnapshot = await transaction.get(teamReference);
-      final actorSnapshot = await transaction.get(actorReference);
-      final memberSnapshot = await transaction.get(memberReference);
+      final actorSnapshot = await transaction.get(actorMembershipReference);
+      final membershipSnapshot = await transaction.get(membershipReference);
 
       if (!teamSnapshot.exists) {
         throw const TeamException('El equipo ya no existe.');
       }
-      if (!actorSnapshot.exists) {
-        throw const TeamException('No se pudo comprobar tu acceso.');
-      }
-      final actor = AppUser.fromSnapshot(actorSnapshot);
-      if (actor.teamId != teamId || !actor.isCoach) {
-        throw const TeamException(
-          'Sólo los entrenadores pueden administrar el equipo.',
-        );
-      }
-      if (!memberSnapshot.exists) {
+      ensureActiveCoachMembership(
+        actorSnapshot.exists
+            ? TeamMembership.fromSnapshot(actorSnapshot)
+            : null,
+        teamId,
+        message: 'Sólo los entrenadores pueden administrar el equipo.',
+      );
+      if (!membershipSnapshot.exists) {
         throw const TeamException('Este miembro ya no está disponible.');
       }
-      final member = AppUser.fromSnapshot(memberSnapshot);
-      if (member.teamId != teamId) {
+      final membership = TeamMembership.fromSnapshot(membershipSnapshot);
+      if (!membership.active) {
         throw const TeamException('Este miembro ya no pertenece al equipo.');
       }
       final team = Team.fromSnapshot(teamSnapshot);
@@ -735,19 +785,29 @@ class TeamRepository {
         );
       }
 
-      validate?.call(member);
-      final membershipSnapshot = await transaction.get(membershipReference);
-      final membership = membershipSnapshot.exists
-          ? TeamMembership.fromSnapshot(membershipSnapshot)
-          : null;
+      validate?.call(membership);
       update(
         transaction,
         memberReference,
         membershipReference,
-        member,
         membership,
+        mirrorLegacyProfile,
       );
     });
+  }
+
+  Future<AppUser?> _readProfileIfVisible(
+    DocumentReference<Map<String, dynamic>> reference,
+  ) async {
+    try {
+      final snapshot = await reference.get();
+      return snapshot.exists ? AppUser.fromSnapshot(snapshot) : null;
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        return null;
+      }
+      rethrow;
+    }
   }
 
   // --- Write helpers ------------------------------------------------------
