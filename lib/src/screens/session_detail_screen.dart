@@ -8,6 +8,7 @@ import '../models/attendance.dart';
 import '../models/team_membership.dart';
 import '../models/team_session.dart';
 import '../providers.dart';
+import '../utils/search_text.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/async_state_view.dart';
@@ -504,12 +505,24 @@ class _CoachAttendancePanel extends ConsumerStatefulWidget {
       _CoachAttendancePanelState();
 }
 
-class _CoachAttendancePanelState
-    extends ConsumerState<_CoachAttendancePanel> {
+class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
   AttendanceStatus? _selectedStatus;
   bool _selectionMode = false;
   bool _bulkSaving = false;
   final Set<String> _selectedMemberIds = {};
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
 
   void _enterSelectionMode(String memberId) {
     setState(() {
@@ -557,7 +570,9 @@ class _CoachAttendancePanelState
     }
     setState(() => _bulkSaving = true);
     try {
-      await ref.read(attendanceRepositoryProvider).saveRosterAttendance(
+      await ref
+          .read(attendanceRepositoryProvider)
+          .saveRosterAttendance(
             sessionId: widget.session.id,
             userIds: members.map((record) => record.userId),
             status: draft.status,
@@ -620,14 +635,17 @@ class _CoachAttendancePanelState
                       sessionTime: session.startTime,
                     ),
             };
-            final visibleMembers = _selectedStatus == null
-                ? members
-                : members
-                      .where(
-                        (member) =>
-                            attendance[member.id]!.status == _selectedStatus,
-                      )
-                      .toList();
+            final showSearch = members.length > playerSearchThreshold;
+            final query = showSearch ? _searchQuery.trim() : '';
+            final visibleMembers = members
+                .where(
+                  (member) =>
+                      _selectedStatus == null ||
+                      attendance[member.id]!.status == _selectedStatus,
+                )
+                .where((member) => matchesSearchQuery(member.fullName, query))
+                .toList();
+            final isFiltered = _selectedStatus != null || query.isNotEmpty;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -644,13 +662,36 @@ class _CoachAttendancePanelState
                 ),
                 const SizedBox(height: 22),
                 Text(
-                  _selectedStatus == null
-                      ? 'Plantilla (${members.length})'
-                      : 'Plantilla (${visibleMembers.length} '
-                            'de ${members.length})',
+                  isFiltered
+                      ? 'Plantilla (${visibleMembers.length} '
+                            'de ${members.length})'
+                      : 'Plantilla (${members.length})',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
+                if (showSearch)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      key: const ValueKey('session-player-search'),
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Buscar jugador',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Limpiar búsqueda',
+                                icon: const Icon(Icons.clear),
+                                onPressed: _clearSearch,
+                              ),
+                        isDense: true,
+                      ),
+                      textInputAction: TextInputAction.search,
+                      onChanged: (value) =>
+                          setState(() => _searchQuery = value),
+                    ),
+                  ),
                 if (_selectionMode)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -668,10 +709,18 @@ class _CoachAttendancePanelState
                     message: 'Comparte el código para añadir jugadores.',
                   )
                 else if (visibleMembers.isEmpty)
-                  const EmptyState(
-                    icon: Icons.filter_alt_off_outlined,
+                  EmptyState(
+                    icon: query.isEmpty
+                        ? Icons.filter_alt_off_outlined
+                        : Icons.search_off_outlined,
                     title: 'Sin jugadores',
-                    message: 'Ningún jugador tiene este estado de asistencia.',
+                    message: query.isEmpty
+                        ? 'Ningún jugador tiene este estado de asistencia.'
+                        : _selectedStatus == null
+                        ? 'Ningún jugador coincide con '
+                              '"$query".'
+                        : 'Ningún jugador con este estado coincide con '
+                              '"$query".',
                   )
                 else
                   ...visibleMembers.map((member) {
@@ -775,10 +824,7 @@ class CoachAttendanceListItem extends StatelessWidget {
         minTileHeight: hasNote ? 88 : 72,
         isThreeLine: hasNote,
         leading: selectionMode
-            ? Checkbox(
-                value: selected,
-                onChanged: (_) => onTap(),
-              )
+            ? Checkbox(value: selected, onChanged: (_) => onTap())
             : CircleAvatar(
                 child: Text(
                   member.fullName.isEmpty
@@ -890,9 +936,8 @@ class _AttendanceSummary extends StatelessWidget {
               selected: status == selectedStatus,
               status: status,
               label: '${status.coachLabel}: ${counts[status]}',
-              onSelected: (_) => onStatusSelected(
-                status == selectedStatus ? null : status,
-              ),
+              onSelected: (_) =>
+                  onStatusSelected(status == selectedStatus ? null : status),
             ),
           )
           .toList(),

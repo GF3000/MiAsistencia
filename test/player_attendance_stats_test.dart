@@ -4,6 +4,7 @@ import 'package:mi_asistencia/src/models/app_user.dart';
 import 'package:mi_asistencia/src/models/attendance.dart';
 import 'package:mi_asistencia/src/models/team_session.dart';
 import 'package:mi_asistencia/src/theme/app_theme.dart';
+import 'package:mi_asistencia/src/utils/search_text.dart';
 import 'package:mi_asistencia/src/widgets/player_attendance_table.dart';
 
 void main() {
@@ -400,17 +401,10 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: PlayerAttendanceTable(
-            rows: const [
-              PlayerAttendanceTableRow(player: ana, stats: anaStats),
-              PlayerAttendanceTableRow(player: bea, stats: beaStats),
-            ],
-          ),
-        ),
-      ),
+      _searchableTable([
+        PlayerAttendanceTableRow(player: ana, stats: anaStats),
+        PlayerAttendanceTableRow(player: bea, stats: beaStats),
+      ]),
     );
 
     expect(find.text('Ana García'), findsOneWidget);
@@ -450,16 +444,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: PlayerAttendanceTable(
-            rows: const [
-              PlayerAttendanceTableRow(player: player, stats: stats),
-            ],
-          ),
-        ),
-      ),
+      _searchableTable([
+        PlayerAttendanceTableRow(player: player, stats: stats),
+      ]),
     );
 
     await tester.enterText(
@@ -497,16 +484,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: PlayerAttendanceTable(
-            rows: const [
-              PlayerAttendanceTableRow(player: player, stats: stats),
-            ],
-          ),
-        ),
-      ),
+      _searchableTable([
+        PlayerAttendanceTableRow(player: player, stats: stats),
+      ]),
     );
 
     await tester.enterText(
@@ -547,16 +527,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: PlayerAttendanceTable(
-            rows: const [
-              PlayerAttendanceTableRow(player: player, stats: stats),
-            ],
-          ),
-        ),
-      ),
+      _searchableTable([
+        PlayerAttendanceTableRow(player: player, stats: stats),
+      ]),
     );
 
     await tester.enterText(
@@ -626,12 +599,7 @@ void main() {
       ),
     ];
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(body: PlayerAttendanceTable(rows: rows)),
-      ),
-    );
+    await tester.pumpWidget(_searchableTable(rows));
 
     await tester.enterText(
       find.byKey(const ValueKey('player-attendance-search')),
@@ -672,16 +640,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: PlayerAttendanceTable(
-            rows: const [
-              PlayerAttendanceTableRow(player: player, stats: stats),
-            ],
-          ),
-        ),
-      ),
+      _searchableTable([
+        PlayerAttendanceTableRow(player: player, stats: stats),
+      ]),
     );
 
     await tester.enterText(
@@ -692,6 +653,166 @@ void main() {
 
     expect(find.text('Ángel García'), findsOneWidget);
   });
+
+  test('player search matches every word in any order', () {
+    expect(matchesSearchQuery('Ana García', ''), isTrue);
+    expect(matchesSearchQuery('Ana García', '  '), isTrue);
+    expect(matchesSearchQuery('Ana García', 'garcia ana'), isTrue);
+    expect(matchesSearchQuery('Ana García', 'ANA  gar'), isTrue);
+    expect(matchesSearchQuery('Ana García', 'ana lopez'), isFalse);
+  });
+
+  testWidgets('shows the player search only with more than 10 players', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: PlayerAttendanceTable(rows: _fillerRows()),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('player-attendance-search')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(
+      _searchableTable([_fillerRow('extra', 'Jugador extra')]),
+    );
+
+    expect(
+      find.byKey(const ValueKey('player-attendance-search')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('player search matches names with words in any order', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _searchableTable([
+        _fillerRow('ana', 'Ana García'),
+        _fillerRow('bea', 'Beatriz López'),
+      ]),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'garcia ana',
+    );
+    await tester.pump();
+
+    expect(find.text('Ana García'), findsOneWidget);
+    expect(find.text('Beatriz López'), findsNothing);
+  });
+
+  testWidgets('shows how many players match the search', (tester) async {
+    await tester.pumpWidget(
+      _searchableTable([
+        _fillerRow('ana', 'Ana García'),
+        _fillerRow('bea', 'Beatriz López'),
+      ]),
+    );
+
+    expect(find.text('0 sesiones finalizadas'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'ana',
+    );
+    await tester.pump();
+
+    expect(
+      find.text('0 sesiones finalizadas · 1 de 12 jugadores'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('downloads every player even while searching', (tester) async {
+    String? downloadedContent;
+    await tester.pumpWidget(
+      _searchableTable(
+        [_fillerRow('ana', 'Ana García'), _fillerRow('bea', 'Beatriz López')],
+        downloadFile: ({required fileName, required content}) {
+          downloadedContent = content;
+        },
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('player-attendance-search')),
+      'ana',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('attendance-csv-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Descargar por jugadores'));
+    await tester.pumpAndSettle();
+
+    expect(downloadedContent, contains('Ana García'));
+    expect(downloadedContent, contains('Beatriz López'));
+    expect(downloadedContent, contains('Relleno 10'));
+  });
+}
+
+/// Wraps [rows] plus enough filler players to show the search bar.
+Widget _searchableTable(
+  List<PlayerAttendanceTableRow> rows, {
+  void Function({required String fileName, required String content})?
+  downloadFile,
+}) {
+  final allRows = [...rows, ..._fillerRows()];
+  return MaterialApp(
+    theme: AppTheme.light,
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: downloadFile == null
+            ? PlayerAttendanceTable(rows: allRows)
+            : PlayerAttendanceTable(
+                rows: allRows,
+                completedSessions: const [],
+                attendanceBySession: const {},
+                downloadFile: downloadFile,
+              ),
+      ),
+    ),
+  );
+}
+
+/// Ten players whose names ("Relleno N") never match the test queries.
+List<PlayerAttendanceTableRow> _fillerRows() => [
+  for (var index = 1; index <= playerSearchThreshold; index++)
+    _fillerRow('filler-$index', 'Relleno $index'),
+];
+
+PlayerAttendanceTableRow _fillerRow(String id, String fullName) {
+  return PlayerAttendanceTableRow(
+    player: AppUser(
+      id: id,
+      email: '$id@example.com',
+      fullName: fullName,
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+    ),
+    stats: PlayerAttendanceStats(
+      userId: id,
+      sessionCount: 0,
+      eligibleSessionCount: 0,
+      attendedSessionCount: 0,
+      attendanceCount: 0,
+      lateCount: 0,
+      physicalCount: 0,
+      courtCount: 0,
+      absenceCount: 0,
+      injuryCount: 0,
+    ),
+  );
 }
 
 List<String> _verticalOrder(WidgetTester tester, List<String> labels) {

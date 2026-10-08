@@ -10,6 +10,7 @@ import '../providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/attendance_csv.dart';
 import '../utils/file_download.dart';
+import '../utils/search_text.dart';
 import 'app_widgets.dart';
 
 class PlayerAttendanceOverview extends ConsumerWidget {
@@ -117,9 +118,23 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
     super.dispose();
   }
 
+  bool get _showSearch => widget.rows.length > playerSearchThreshold;
+
+  String get _activeQuery => _showSearch ? _searchQuery.trim() : '';
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sortedRows = _sortedRows();
+    final sortedRows = _sortRows(_filteredRows());
+    final isFiltered = _activeQuery.isNotEmpty;
+    final subtitle = isFiltered
+        ? '${widget.completedSessions.length} sesiones finalizadas · '
+              '${sortedRows.length} de ${widget.rows.length} jugadores'
+        : '${widget.completedSessions.length} sesiones finalizadas';
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -128,102 +143,84 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final searchWidth = constraints.maxWidth < 220
-                    ? constraints.maxWidth
-                    : 220.0;
-
-                return Wrap(
-                  spacing: 16,
-                  runSpacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                final compact = constraints.maxWidth < 560;
+                final title = Row(
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(13),
-                          ),
-                          child: const Icon(
-                            Icons.analytics_outlined,
-                            color: AppTheme.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Histórico del equipo',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${widget.completedSessions.length} sesiones finalizadas',
-                              style: TextStyle(color: Colors.blueGrey.shade600),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    SizedBox(
-                      width: searchWidth,
-                      child: TextField(
-                        key: const ValueKey('player-attendance-search'),
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Buscar jugador',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searchQuery.isEmpty
-                              ? null
-                              : IconButton(
-                                  tooltip: 'Limpiar búsqueda',
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    setState(() {
-                                      _searchQuery = '';
-                                    });
-                                  },
-                                ),
-                          isDense: true,
-                        ),
-                        textInputAction: TextInputAction.search,
-                        onChanged: (value) {
-                          setState(() {
-                            _searchQuery = value;
-                          });
-                        },
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: const Icon(
+                        Icons.analytics_outlined,
+                        color: AppTheme.primary,
                       ),
                     ),
-                    PopupMenuButton<_AttendanceCsvExport>(
-                      key: const ValueKey('attendance-csv-menu'),
-                      enabled: widget.rows.isNotEmpty,
-                      tooltip: 'Descargar CSV',
-                      icon: const Icon(Icons.download_outlined),
-                      onSelected: _downloadCsv,
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(
-                          value: _AttendanceCsvExport.players,
-                          child: ListTile(
-                            leading: Icon(Icons.people_outline),
-                            title: Text('Descargar por jugadores'),
-                            contentPadding: EdgeInsets.zero,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Histórico del equipo',
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
-                        ),
-                        PopupMenuItem(
-                          value: _AttendanceCsvExport.sessions,
-                          child: ListTile(
-                            leading: Icon(Icons.event_note_outlined),
-                            title: Text('Descargar por sesión'),
-                            contentPadding: EdgeInsets.zero,
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            key: const ValueKey('player-attendance-subtitle'),
+                            style: TextStyle(color: Colors.blueGrey.shade600),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                  ],
+                );
+                final search = TextField(
+                  key: const ValueKey('player-attendance-search'),
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Buscar jugador',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Limpiar búsqueda',
+                            icon: const Icon(Icons.clear),
+                            onPressed: _clearSearch,
+                          ),
+                    isDense: true,
+                  ),
+                  textInputAction: TextInputAction.search,
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                );
+                final download = _csvMenu();
+
+                if (compact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: title),
+                          download,
+                        ],
+                      ),
+                      if (_showSearch) ...[const SizedBox(height: 12), search],
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: title),
+                    if (_showSearch) ...[
+                      const SizedBox(width: 16),
+                      SizedBox(width: 280, child: search),
+                    ],
+                    const SizedBox(width: 8),
+                    download,
                   ],
                 );
               },
@@ -249,7 +246,7 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                   const SizedBox(height: 4),
                   Text(
                     'No hay jugadores cuyo nombre coincida con '
-                    '"$_searchQuery".',
+                    '"$_activeQuery".',
                     style: TextStyle(color: Colors.blueGrey.shade600),
                     textAlign: TextAlign.center,
                   ),
@@ -355,6 +352,34 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
     );
   }
 
+  Widget _csvMenu() {
+    return PopupMenuButton<_AttendanceCsvExport>(
+      key: const ValueKey('attendance-csv-menu'),
+      enabled: widget.rows.isNotEmpty,
+      tooltip: 'Descargar CSV',
+      icon: const Icon(Icons.download_outlined),
+      onSelected: _downloadCsv,
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _AttendanceCsvExport.players,
+          child: ListTile(
+            leading: Icon(Icons.people_outline),
+            title: Text('Descargar por jugadores'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem(
+          value: _AttendanceCsvExport.sessions,
+          child: ListTile(
+            leading: Icon(Icons.event_note_outlined),
+            title: Text('Descargar por sesión'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
   void _downloadCsv(_AttendanceCsvExport export) {
     if (widget.rows.isEmpty) {
       return;
@@ -362,7 +387,8 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
     final date = _fileDate(DateTime.now());
     switch (export) {
       case _AttendanceCsvExport.players:
-        final sortedRows = _sortedRows();
+        // The search only narrows the view; the export always has everyone.
+        final sortedRows = _sortRows(widget.rows);
         widget.downloadFile(
           fileName: 'asistencia-por-jugadores-$date.csv',
           content: buildPlayerAttendanceCsv(
@@ -397,20 +423,16 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
   }
 
   List<PlayerAttendanceTableRow> _filteredRows() {
-    final query = _normalizeSearchText(_searchQuery.trim());
-
-    if (query.isEmpty) {
-      return [...widget.rows];
-    }
-
-    return widget.rows.where((row) {
-      final normalizedName = _normalizeSearchText(row.player.fullName);
-      return normalizedName.contains(query);
-    }).toList();
+    final query = _activeQuery;
+    return widget.rows
+        .where((row) => matchesSearchQuery(row.player.fullName, query))
+        .toList();
   }
 
-  List<PlayerAttendanceTableRow> _sortedRows() {
-    final sorted = _filteredRows();
+  List<PlayerAttendanceTableRow> _sortRows(
+    Iterable<PlayerAttendanceTableRow> rows,
+  ) {
+    final sorted = [...rows];
     sorted.sort((left, right) {
       if (_sortColumnIndex == 1) {
         final percentageComparison = _comparePercentages(
@@ -489,14 +511,4 @@ enum _AttendanceCsvExport { players, sessions }
 String _fileDate(DateTime value) {
   String twoDigits(int part) => part.toString().padLeft(2, '0');
   return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}';
-}
-
-String _normalizeSearchText(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll(RegExp(r'[áàäâã]'), 'a')
-      .replaceAll(RegExp(r'[éèëê]'), 'e')
-      .replaceAll(RegExp(r'[íìïî]'), 'i')
-      .replaceAll(RegExp(r'[óòöôõ]'), 'o')
-      .replaceAll(RegExp(r'[úùüû]'), 'u');
 }
