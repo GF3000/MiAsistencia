@@ -264,14 +264,13 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                       _SummaryMetric(
                         icon: Icons.sports_basketball_outlined,
                         label: 'En pista',
-                        value: '${summary.courtCount}/${summary.totalPlayers}',
+                        value: summary.court.label,
                         color: const Color(0xFF2563A5),
                       ),
                       _SummaryMetric(
                         icon: Icons.fitness_center_outlined,
                         label: 'En físico',
-                        value:
-                            '${summary.physicalCount}/${summary.totalPlayers}',
+                        value: summary.physical.label,
                         color: const Color(0xFF7650A8),
                       ),
                     ];
@@ -293,34 +292,49 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                     );
                   },
                 ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB76505).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        Icons.schedule_outlined,
-                        color: Color(0xFFB76505),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Text(
-                          summary.latePlayerNames.isEmpty
-                              ? 'Llegan tarde: nadie'
-                              : 'Llegan tarde: '
-                                    '${summary.latePlayerNames.join(', ')}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                if (summary.latePlayerNames.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFB76505).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.schedule_outlined,
+                          color: Color(0xFFB76505),
+                          size: 20,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              text:
+                                  'Llegan tarde: '
+                                  '${summary.latePlayerNames.length}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text:
+                                      ' · '
+                                      '${summary.latePlayerNames.join(', ')}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             );
           },
