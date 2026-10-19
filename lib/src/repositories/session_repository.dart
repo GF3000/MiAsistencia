@@ -112,49 +112,36 @@ class SessionRepository {
     }
   }
 
+  // One batch per session: every distinct session in a batch costs a document
+  // access in the security rules, so mixing many sessions in one batch would
+  // exceed the rules' 20 document-access limit.
   Future<void> deleteSessions(Iterable<TeamSession> sessions) async {
-    var batch = _firestore.batch();
-    var operationCount = 0;
-
-    Future<void> flush() async {
-      if (operationCount == 0) {
-        return;
-      }
-      await batch.commit();
-      batch = _firestore.batch();
-      operationCount = 0;
-    }
-
     for (final session in sessions) {
-      final sessionReference = _firestore
-          .collection('sessions')
-          .doc(session.id);
-      final attendance = await sessionReference.collection('attendance').get();
-      for (final document in attendance.docs) {
-        batch.delete(document.reference);
-        operationCount++;
-        if (operationCount == 450) {
-          await flush();
-        }
-      }
-      batch.delete(sessionReference);
-      operationCount++;
-      if (operationCount == 450) {
-        await flush();
-      }
+      await deleteSession(session.id);
     }
-    await flush();
   }
 
   Future<void> deleteSession(String sessionId) async {
     final sessionReference = _firestore.collection('sessions').doc(sessionId);
     final attendance = await sessionReference.collection('attendance').get();
-    final batch = _firestore.batch();
-    for (final document in attendance.docs) {
-      batch.delete(document.reference);
+    final attendanceReferences = attendance.docs
+        .map((document) => document.reference)
+        .toList();
+    // The session goes in the last batch so a failure never deletes it while
+    // leaving orphaned attendance behind.
+    for (var offset = 0; offset < attendanceReferences.length; offset += 450) {
+      final batch = _firestore.batch();
+      for (final reference in attendanceReferences.skip(offset).take(450)) {
+        batch.delete(reference);
+      }
+      if (offset + 450 >= attendanceReferences.length) {
+        batch.delete(sessionReference);
+      }
+      await batch.commit();
     }
-    batch.delete(sessionReference);
-    await batch.commit();
+    if (attendanceReferences.isEmpty) {
+      await sessionReference.delete();
+    }
   }
 
   DateTime _combineDateAndTime(DateTime date, DateTime time) {

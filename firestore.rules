@@ -550,10 +550,15 @@ service cloud.firestore {
           && (isTeamCoach(parentSession().teamId)
             || (isPlayerAttendanceStatus(resource.data.status)
               && isPlayerAttendanceStatus(request.resource.data.status)));
-        allow delete: if canEditAttendance()
-          && targetIsPlayer()
-          && (isTeamCoach(parentSession().teamId)
-            || isPlayerAttendanceStatus(resource.data.status));
+        // A coach may delete any record of their team's sessions without the
+        // targetIsPlayer() lookup: deleting a session removes every attendance
+        // doc in one batch, and a per-member membership read would exceed the
+        // rules' 20 document-access limit (and block records of members who
+        // have since left or become admins).
+        allow delete: if isTeamCoach(parentSession().teamId)
+          || (canEditAttendance()
+            && targetIsPlayer()
+            && isPlayerAttendanceStatus(resource.data.status));
       }
     }
   }
