@@ -273,9 +273,7 @@ class _MonthGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firstDay = DateTime(visibleMonth.year, visibleMonth.month);
-    final gridStart = firstDay.subtract(
-      Duration(days: firstDay.weekday - DateTime.monday),
-    );
+    final leadingDays = firstDay.weekday - DateTime.monday;
     final today = DateUtils.dateOnly(DateTime.now());
 
     return GridView.builder(
@@ -289,7 +287,13 @@ class _MonthGrid extends StatelessWidget {
         crossAxisSpacing: isWide ? 4 : 3,
       ),
       itemBuilder: (context, index) {
-        final date = gridStart.add(Duration(days: index));
+        // Calendar arithmetic instead of Duration so DST changes (23h/25h
+        // days) don't repeat or skip a day.
+        final date = DateTime(
+          visibleMonth.year,
+          visibleMonth.month,
+          1 - leadingDays + index,
+        );
         final sessionCount = sessions
             .where((session) => DateUtils.isSameDay(session.startTime, date))
             .length;

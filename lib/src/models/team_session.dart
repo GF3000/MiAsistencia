@@ -142,7 +142,11 @@ List<SessionOccurrence> buildSessionOccurrences({
   final occurrences = <SessionOccurrence>[];
 
   for (var offset = 0; offset < weeks * DateTime.daysPerWeek; offset++) {
-    final date = normalizedDate.add(Duration(days: offset));
+    final date = DateTime(
+      normalizedDate.year,
+      normalizedDate.month,
+      normalizedDate.day + offset,
+    );
     if (!selectedWeekdays.contains(date.weekday)) {
       continue;
     }
