@@ -354,6 +354,7 @@ class PlayerAttendanceStats {
     required this.courtCount,
     required this.absenceCount,
     required this.injuryCount,
+    this.currentlyPresumedAbsent = false,
   });
 
   final String userId;
@@ -367,15 +368,27 @@ class PlayerAttendanceStats {
   final int absenceCount;
   final int injuryCount;
 
-  int? get attendancePercentage => eligibleSessionCount == 0
+  /// The player is presumed absent today, so no percentage is shown.
+  final bool currentlyPresumedAbsent;
+
+  int? get attendancePercentage =>
+      currentlyPresumedAbsent || eligibleSessionCount == 0
       ? null
       : (attendedSessionCount * 100 / eligibleSessionCount).round();
 }
 
+/// Builds a player's historical attendance statistics.
+///
+/// Sessions in which the player was presumed absent (e.g. a leave announced
+/// in advance) still count: what the player marked adds to court/physical,
+/// and every one of them is part of the percentage's denominator. They are
+/// never counted as absences, since the absence was announced. Players
+/// presumed absent at [now] get no percentage (`null`).
 PlayerAttendanceStats buildPlayerAttendanceStats({
   required TeamRosterMember player,
   required Iterable<TeamSession> sessions,
   required Map<String, Map<String, AttendanceRecord>> attendanceBySession,
+  DateTime? now,
 }) {
   var sessionCount = 0;
   var eligibleSessionCount = 0;
@@ -388,9 +401,10 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
   var injuryCount = 0;
 
   for (final session in sessions) {
-    if (isPresumedAbsentAt(member: player, sessionTime: session.startTime)) {
-      continue;
-    }
+    final presumedAbsent = isPresumedAbsentAt(
+      member: player,
+      sessionTime: session.startTime,
+    );
     final status = resolveAttendanceStatus(
       user: player,
       explicitRecord: attendanceBySession[session.id]?[player.id],
@@ -424,7 +438,9 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
       case AttendanceStatus.absent:
       case AttendanceStatus.absentUnannounced:
       case AttendanceStatus.absentLateNotice:
-        absenceCount++;
+        if (!presumedAbsent) {
+          absenceCount++;
+        }
       case AttendanceStatus.injured:
         injuryCount++;
       case AttendanceStatus.noConvocado:
@@ -444,6 +460,10 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
     courtCount: courtCount,
     absenceCount: absenceCount,
     injuryCount: injuryCount,
+    currentlyPresumedAbsent: isPresumedAbsentAt(
+      member: player,
+      sessionTime: now ?? DateTime.now(),
+    ),
   );
 }
 

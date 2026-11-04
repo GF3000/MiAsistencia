@@ -125,6 +125,7 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                   player: player,
                   sessions: loadedSessions,
                   attendanceBySession: attendanceBySession,
+                  now: now,
                 );
                 final kpis = buildPlayerMotivationKpis(
                   currentPlayer: player,

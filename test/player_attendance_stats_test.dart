@@ -64,6 +64,112 @@ void main() {
     expect(stats.injuryCount, 1);
   });
 
+  group('announced leave (presumed absent)', () {
+    // Month 1: 12 sessions attended. Month 2: on leave (presumed absent),
+    // no records. Month 3: back; 6 attended, 2 injured, 4 absent.
+    final sessions = [
+      for (var index = 0; index < 36; index++)
+        TeamSession(
+          id: 'session-$index',
+          teamId: 'team-1',
+          title: 'Sesión $index',
+          startTime: DateTime(2026, 1, 1, 19).add(Duration(days: index * 2)),
+          endTime: DateTime(2026, 1, 1, 20).add(Duration(days: index * 2)),
+        ),
+    ];
+    final leaveStart = sessions[12].startTime.subtract(
+      const Duration(hours: 1),
+    );
+    final leaveEnd = sessions[24].startTime.subtract(const Duration(hours: 1));
+
+    AttendanceRecord record(AttendanceStatus status) =>
+        AttendanceRecord(userId: 'player-1', status: status);
+
+    final attendanceBySession = {
+      for (var index = 24; index < 36; index++)
+        'session-$index': {
+          'player-1': record(switch (index - 24) {
+            < 6 => AttendanceStatus.attending,
+            < 8 => AttendanceStatus.injured,
+            _ => AttendanceStatus.absent,
+          }),
+        },
+    };
+
+    AppUser player(List<AttendancePresumptionChange> history) => AppUser(
+      id: 'player-1',
+      email: 'player@example.com',
+      fullName: 'Jugador',
+      role: UserRole.player,
+      teamId: 'team-1',
+      active: true,
+      attendancePresumptionHistory: history,
+    );
+
+    final backFromLeave = player([
+      AttendancePresumptionChange(
+        value: AttendancePresumption.absent,
+        effectiveFrom: leaveStart,
+      ),
+      AttendancePresumptionChange(
+        value: AttendancePresumption.attending,
+        effectiveFrom: leaveEnd,
+      ),
+    ]);
+
+    test('counts the leave in the percentage but not as absences', () {
+      final stats = buildPlayerAttendanceStats(
+        player: backFromLeave,
+        sessions: sessions,
+        attendanceBySession: attendanceBySession,
+        now: DateTime(2026, 6, 1),
+      );
+
+      expect(stats.attendedSessionCount, 18);
+      expect(stats.eligibleSessionCount, 34);
+      expect(stats.attendancePercentage, 53);
+      expect(stats.courtCount, 18);
+      expect(stats.physicalCount, 18);
+      expect(stats.injuryCount, 2);
+      expect(stats.absenceCount, 4);
+    });
+
+    test('counts sessions attended while presumed absent', () {
+      final stats = buildPlayerAttendanceStats(
+        player: backFromLeave,
+        sessions: sessions,
+        attendanceBySession: {
+          ...attendanceBySession,
+          'session-12': {'player-1': record(AttendanceStatus.courtOnly)},
+        },
+        now: DateTime(2026, 6, 1),
+      );
+
+      expect(stats.attendedSessionCount, 19);
+      expect(stats.courtCount, 19);
+      expect(stats.physicalCount, 18);
+      expect(stats.absenceCount, 4);
+    });
+
+    test('hides the percentage while currently presumed absent', () {
+      final stats = buildPlayerAttendanceStats(
+        player: player([
+          AttendancePresumptionChange(
+            value: AttendancePresumption.absent,
+            effectiveFrom: leaveStart,
+          ),
+        ]),
+        sessions: sessions.take(24),
+        attendanceBySession: const {},
+        now: DateTime(2026, 6, 1),
+      );
+
+      expect(stats.attendancePercentage, isNull);
+      expect(stats.courtCount, 12);
+      expect(stats.absenceCount, 0);
+    });
+  });
+
   testWidgets('renders every requested player statistics column', (
     tester,
   ) async {

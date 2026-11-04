@@ -337,8 +337,11 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
               'Completas: sesiones con pista y físico, sin retraso. '
               'Físico incluye completas, retrasos y solo físico. '
               'Pista incluye completas, retrasos y solo pista. '
-              'El porcentaje excluye lesiones, sesiones anteriores al alta '
-              'del jugador y sesiones con presunción de no asistencia.',
+              'El porcentaje se calcula sobre todas las sesiones desde el '
+              'alta del jugador, sin lesiones ni no convocados, e incluye '
+              'las ausencias avisadas (presunción de no asistencia), que no '
+              'cuentan como faltas. Se muestra «—» si el jugador tiene ahora '
+              'presunción de no asistencia.',
               style: TextStyle(
                 color: Colors.blueGrey.shade600,
                 fontSize: 12,
