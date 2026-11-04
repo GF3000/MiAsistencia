@@ -270,13 +270,12 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                   columns: [
                     _sortableColumn(0, 'Jugador'),
                     _sortableColumn(1, 'Asistencia %', numeric: true),
-                    _sortableColumn(2, 'Sesiones', numeric: true),
-                    _sortableColumn(3, 'Asistencias', numeric: true),
-                    _sortableColumn(4, 'Retrasos', numeric: true),
-                    _sortableColumn(5, 'Físico', numeric: true),
-                    _sortableColumn(6, 'Pista', numeric: true),
-                    _sortableColumn(7, 'Faltas', numeric: true),
-                    _sortableColumn(8, 'Lesiones', numeric: true),
+                    _sortableColumn(2, 'Asistencias', numeric: true),
+                    _sortableColumn(3, 'Retrasos', numeric: true),
+                    _sortableColumn(4, 'Físico', numeric: true),
+                    _sortableColumn(5, 'Pista', numeric: true),
+                    _sortableColumn(6, 'Faltas', numeric: true),
+                    _sortableColumn(7, 'Lesiones', numeric: true),
                   ],
                   rows: sortedRows
                       .map(
@@ -301,7 +300,6 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                               ),
                             ),
                             _percentageCell(row),
-                            _numberCell(row.stats.sessionCount),
                             _numberCell(
                               row.stats.attendanceCount,
                               color: AppTheme.primary,
@@ -450,13 +448,12 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
         0 => left.player.fullName.toLowerCase().compareTo(
           right.player.fullName.toLowerCase(),
         ),
-        2 => left.stats.sessionCount.compareTo(right.stats.sessionCount),
-        3 => left.stats.attendanceCount.compareTo(right.stats.attendanceCount),
-        4 => left.stats.lateCount.compareTo(right.stats.lateCount),
-        5 => left.stats.physicalCount.compareTo(right.stats.physicalCount),
-        6 => left.stats.courtCount.compareTo(right.stats.courtCount),
-        7 => left.stats.absenceCount.compareTo(right.stats.absenceCount),
-        8 => left.stats.injuryCount.compareTo(right.stats.injuryCount),
+        2 => left.stats.attendanceCount.compareTo(right.stats.attendanceCount),
+        3 => left.stats.lateCount.compareTo(right.stats.lateCount),
+        4 => left.stats.physicalCount.compareTo(right.stats.physicalCount),
+        5 => left.stats.courtCount.compareTo(right.stats.courtCount),
+        6 => left.stats.absenceCount.compareTo(right.stats.absenceCount),
+        7 => left.stats.injuryCount.compareTo(right.stats.injuryCount),
         _ => 0,
       };
       if (comparison != 0) {

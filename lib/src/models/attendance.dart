@@ -416,6 +416,7 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
       case AttendanceStatus.lateUnannounced:
         lateCount++;
         physicalCount++;
+        courtCount++;
       case AttendanceStatus.gymOnly:
         physicalCount++;
       case AttendanceStatus.courtOnly:

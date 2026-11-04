@@ -59,7 +59,7 @@ void main() {
     expect(stats.attendanceCount, 2);
     expect(stats.lateCount, 2);
     expect(stats.physicalCount, 5);
-    expect(stats.courtCount, 3);
+    expect(stats.courtCount, 5);
     expect(stats.absenceCount, 3);
     expect(stats.injuryCount, 1);
   });
@@ -105,9 +105,9 @@ void main() {
     );
     expect(find.text('Marina García'), findsOneWidget);
     expect(find.text('73%'), findsOneWidget);
+    expect(find.text('Sesiones'), findsNothing);
     for (final heading in [
       'Asistencia %',
-      'Sesiones',
       'Asistencias',
       'Retrasos',
       'Físico',
@@ -204,7 +204,7 @@ void main() {
     final table = tester.widget<DataTable>(
       find.byKey(const ValueKey('player-attendance-table')),
     );
-    expect(table.columns, hasLength(9));
+    expect(table.columns, hasLength(8));
     expect(table.columns.every((column) => column.onSort != null), isTrue);
 
     await tester.tap(find.text('Asistencia %'));
