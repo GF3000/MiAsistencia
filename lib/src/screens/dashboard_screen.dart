@@ -194,6 +194,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           PlayerAttendanceOverview(
                             teamId: teamId,
                             completedSessions: completed,
+                            teamName: teamState.value?.name,
                           )
                         else if (_selectedView == SessionViewMode.calendar)
                           TeamCalendarView(

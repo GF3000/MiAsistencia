@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,19 +11,23 @@ import '../models/team_session.dart';
 import '../providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/attendance_csv.dart';
+import '../utils/attendance_image.dart';
 import '../utils/file_download.dart';
 import '../utils/search_text.dart';
+import 'app_notification.dart';
 import 'app_widgets.dart';
 
 class PlayerAttendanceOverview extends ConsumerWidget {
   const PlayerAttendanceOverview({
     required this.teamId,
     required this.completedSessions,
+    this.teamName,
     super.key,
   });
 
   final String teamId;
   final List<TeamSession> completedSessions;
+  final String? teamName;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -75,6 +81,7 @@ class PlayerAttendanceOverview extends ConsumerWidget {
       rows: rows,
       completedSessions: completedSessions,
       attendanceBySession: attendance,
+      teamName: teamName,
     );
   }
 }
@@ -91,15 +98,24 @@ class PlayerAttendanceTable extends StatefulWidget {
     required this.rows,
     this.completedSessions = const [],
     this.attendanceBySession = const {},
+    this.teamName,
     this.downloadFile = downloadTextFile,
+    this.downloadImage = downloadBytesFile,
     super.key,
   });
 
   final List<PlayerAttendanceTableRow> rows;
   final List<TeamSession> completedSessions;
   final Map<String, Map<String, AttendanceRecord>> attendanceBySession;
+  final String? teamName;
   final void Function({required String fileName, required String content})
   downloadFile;
+  final void Function({
+    required String fileName,
+    required Uint8List bytes,
+    required String mimeType,
+  })
+  downloadImage;
 
   @override
   State<PlayerAttendanceTable> createState() => _PlayerAttendanceTableState();
@@ -371,9 +387,9 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
     return PopupMenuButton<_AttendanceCsvExport>(
       key: const ValueKey('attendance-csv-menu'),
       enabled: widget.rows.isNotEmpty,
-      tooltip: 'Descargar CSV',
+      tooltip: 'Descargar',
       icon: const Icon(Icons.download_outlined),
-      onSelected: _downloadCsv,
+      onSelected: _download,
       itemBuilder: (context) => const [
         PopupMenuItem(
           value: _AttendanceCsvExport.players,
@@ -391,15 +407,26 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: _AttendanceCsvExport.image,
+          child: ListTile(
+            leading: Icon(Icons.image_outlined),
+            title: Text('Descargar imagen'),
+            subtitle: Text('Pista, físico y partidos'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
       ],
     );
   }
 
-  void _downloadCsv(_AttendanceCsvExport export) {
+  Future<void> _download(_AttendanceCsvExport export) async {
     if (widget.rows.isEmpty) {
       return;
     }
-    final date = _fileDate(DateTime.now());
+    final now = DateTime.now();
+    final date = _fileDate(now);
     switch (export) {
       case _AttendanceCsvExport.players:
         // The search only narrows the view; the export always has everyone.
@@ -421,6 +448,42 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
             attendanceBySession: widget.attendanceBySession,
           ),
         );
+      case _AttendanceCsvExport.image:
+        await _downloadImage(now);
+    }
+  }
+
+  Future<void> _downloadImage(DateTime now) async {
+    final trainings = widget.completedSessions
+        .where((session) => !session.isMatch)
+        .length;
+    final matches = widget.completedSessions.length - trainings;
+    final day = _fileDate(now).split('-').reversed.join('/');
+    try {
+      final bytes = await buildPlayerAttendanceImage(
+        title: widget.teamName ?? 'Estadísticas de jugadores',
+        subtitle:
+            '$trainings entrenamientos · $matches partidos · '
+            'actualizado el $day',
+        rows: [
+          // Like the CSV, the image has every player in the table's order.
+          for (final row in _sortRows(widget.rows))
+            (playerName: row.player.fullName, stats: row.stats),
+        ],
+      );
+      widget.downloadImage(
+        fileName: 'estadisticas-jugadores-${_fileDate(now)}.png',
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+    } on Exception {
+      if (mounted) {
+        showAppNotification(
+          context,
+          message: 'No se pudo generar la imagen.',
+          type: AppNotificationType.error,
+        );
+      }
     }
   }
 
@@ -524,7 +587,7 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
   }
 }
 
-enum _AttendanceCsvExport { players, sessions }
+enum _AttendanceCsvExport { players, sessions, image }
 
 String _fileDate(DateTime value) {
   String twoDigits(int part) => part.toString().padLeft(2, '0');
