@@ -13,12 +13,12 @@ String buildPlayerAttendanceCsv(Iterable<PlayerAttendanceCsvRow> rows) {
       'Jugador',
       'Asistencia %',
       'Sesiones',
-      'Asistencias',
-      'Retrasos',
-      'Físico',
       'Pista',
-      'Faltas',
+      'Físico',
       'Lesiones',
+      'Faltas',
+      'Completas',
+      'Retrasos',
     ],
     for (final row in rows)
       [
@@ -27,12 +27,12 @@ String buildPlayerAttendanceCsv(Iterable<PlayerAttendanceCsvRow> rows) {
             ? '—'
             : '${row.stats.attendancePercentage}%',
         row.stats.sessionCount,
+        row.stats.courtCount,
+        row.stats.physicalCount,
+        row.stats.injuryCount,
+        row.stats.absenceCount,
         row.stats.attendanceCount,
         row.stats.lateCount,
-        row.stats.physicalCount,
-        row.stats.courtCount,
-        row.stats.absenceCount,
-        row.stats.injuryCount,
       ],
   ]);
 }

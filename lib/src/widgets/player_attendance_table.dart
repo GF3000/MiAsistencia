@@ -270,12 +270,12 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                   columns: [
                     _sortableColumn(0, 'Jugador'),
                     _sortableColumn(1, 'Asistencia %', numeric: true),
-                    _sortableColumn(2, 'Asistencias', numeric: true),
-                    _sortableColumn(3, 'Retrasos', numeric: true),
-                    _sortableColumn(4, 'Físico', numeric: true),
-                    _sortableColumn(5, 'Pista', numeric: true),
-                    _sortableColumn(6, 'Faltas', numeric: true),
-                    _sortableColumn(7, 'Lesiones', numeric: true),
+                    _sortableColumn(2, 'Pista', numeric: true),
+                    _sortableColumn(3, 'Físico', numeric: true),
+                    _sortableColumn(4, 'Lesiones', numeric: true),
+                    _sortableColumn(5, 'Faltas', numeric: true),
+                    _sortableColumn(6, 'Completas', numeric: true),
+                    _sortableColumn(7, 'Retrasos', numeric: true),
                   ],
                   rows: sortedRows
                       .map(
@@ -301,28 +301,28 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                             ),
                             _percentageCell(row),
                             _numberCell(
-                              row.stats.attendanceCount,
-                              color: AppTheme.primary,
-                            ),
-                            _numberCell(
-                              row.stats.lateCount,
-                              color: const Color(0xFFB76505),
+                              row.stats.courtCount,
+                              color: const Color(0xFF2563A5),
                             ),
                             _numberCell(
                               row.stats.physicalCount,
                               color: const Color(0xFF7650A8),
                             ),
                             _numberCell(
-                              row.stats.courtCount,
-                              color: const Color(0xFF2563A5),
+                              row.stats.injuryCount,
+                              color: const Color(0xFFC2413B),
                             ),
                             _numberCell(
                               row.stats.absenceCount,
                               color: const Color(0xFF5C6670),
                             ),
                             _numberCell(
-                              row.stats.injuryCount,
-                              color: const Color(0xFFC2413B),
+                              row.stats.attendanceCount,
+                              color: AppTheme.primary,
+                            ),
+                            _numberCell(
+                              row.stats.lateCount,
+                              color: const Color(0xFFB76505),
                             ),
                           ],
                         ),
@@ -334,10 +334,11 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
             child: Text(
-              'Físico incluye asistencias, retrasos y solo físico. '
-              'Pista incluye asistencias y solo pista. El porcentaje excluye '
-              'lesiones, sesiones anteriores al alta del jugador y sesiones '
-              'con presunción de no asistencia.',
+              'Completas: sesiones con pista y físico, sin retraso. '
+              'Físico incluye completas, retrasos y solo físico. '
+              'Pista incluye completas, retrasos y solo pista. '
+              'El porcentaje excluye lesiones, sesiones anteriores al alta '
+              'del jugador y sesiones con presunción de no asistencia.',
               style: TextStyle(
                 color: Colors.blueGrey.shade600,
                 fontSize: 12,
@@ -448,12 +449,12 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
         0 => left.player.fullName.toLowerCase().compareTo(
           right.player.fullName.toLowerCase(),
         ),
-        2 => left.stats.attendanceCount.compareTo(right.stats.attendanceCount),
-        3 => left.stats.lateCount.compareTo(right.stats.lateCount),
-        4 => left.stats.physicalCount.compareTo(right.stats.physicalCount),
-        5 => left.stats.courtCount.compareTo(right.stats.courtCount),
-        6 => left.stats.absenceCount.compareTo(right.stats.absenceCount),
-        7 => left.stats.injuryCount.compareTo(right.stats.injuryCount),
+        2 => left.stats.courtCount.compareTo(right.stats.courtCount),
+        3 => left.stats.physicalCount.compareTo(right.stats.physicalCount),
+        4 => left.stats.injuryCount.compareTo(right.stats.injuryCount),
+        5 => left.stats.absenceCount.compareTo(right.stats.absenceCount),
+        6 => left.stats.attendanceCount.compareTo(right.stats.attendanceCount),
+        7 => left.stats.lateCount.compareTo(right.stats.lateCount),
         _ => 0,
       };
       if (comparison != 0) {

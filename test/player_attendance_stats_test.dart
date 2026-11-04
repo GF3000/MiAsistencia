@@ -108,7 +108,7 @@ void main() {
     expect(find.text('Sesiones'), findsNothing);
     for (final heading in [
       'Asistencia %',
-      'Asistencias',
+      'Completas',
       'Retrasos',
       'Físico',
       'Pista',

@@ -28,12 +28,12 @@ void main() {
     expect(
       csv,
       contains(
-        'Jugador,Asistencia %,Sesiones,Asistencias,Retrasos,Físico,Pista,'
-        'Faltas,Lesiones\r\n',
+        'Jugador,Asistencia %,Sesiones,Pista,Físico,Lesiones,Faltas,'
+        'Completas,Retrasos\r\n',
       ),
     );
-    expect(csv, contains('"García, Ana",75%,10,4,2,7,6,2,2\r\n'));
-    expect(csv, contains("'=2+2,75%,10,4,2,7,6,2,2\r\n"));
+    expect(csv, contains('"García, Ana",75%,10,6,7,2,2,4,2\r\n'));
+    expect(csv, contains("'=2+2,75%,10,6,7,2,2,4,2\r\n"));
   });
 
   test('exports sessions chronologically with players as columns', () {
