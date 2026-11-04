@@ -276,6 +276,8 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                     _sortableColumn(5, 'Faltas', numeric: true),
                     _sortableColumn(6, 'Completas', numeric: true),
                     _sortableColumn(7, 'Retrasos', numeric: true),
+                    _sortableColumn(8, 'Partidos', numeric: true),
+                    _sortableColumn(9, 'Desconvocados', numeric: true),
                   ],
                   rows: sortedRows
                       .map(
@@ -324,6 +326,14 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
                               row.stats.lateCount,
                               color: const Color(0xFFB76505),
                             ),
+                            _numberCell(
+                              row.stats.matchCount,
+                              color: AppTheme.navy,
+                            ),
+                            _numberCell(
+                              row.stats.uncalledMatchCount,
+                              color: const Color(0xFF475569),
+                            ),
                           ],
                         ),
                       )
@@ -341,7 +351,10 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
               'alta del jugador, sin lesiones ni no convocados, e incluye '
               'las ausencias avisadas (presunción de no asistencia), que no '
               'cuentan como faltas. Se muestra «—» si el jugador tiene ahora '
-              'presunción de no asistencia.',
+              'presunción de no asistencia. Los partidos no cuentan en el '
+              'porcentaje ni en las columnas de entrenamiento: Partidos son '
+              'los partidos a los que asistió y Desconvocados, en los que fue '
+              'marcado como no convocado.',
               style: TextStyle(
                 color: Colors.blueGrey.shade600,
                 fontSize: 12,
@@ -458,6 +471,10 @@ class _PlayerAttendanceTableState extends State<PlayerAttendanceTable> {
         5 => left.stats.absenceCount.compareTo(right.stats.absenceCount),
         6 => left.stats.attendanceCount.compareTo(right.stats.attendanceCount),
         7 => left.stats.lateCount.compareTo(right.stats.lateCount),
+        8 => left.stats.matchCount.compareTo(right.stats.matchCount),
+        9 => left.stats.uncalledMatchCount.compareTo(
+          right.stats.uncalledMatchCount,
+        ),
         _ => 0,
       };
       if (comparison != 0) {

@@ -120,6 +120,10 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                 final loadedSessions = attendanceState.hasValue
                     ? completedSessions
                     : const <TeamSession>[];
+                // Matches never count towards attendance KPIs or the chart.
+                final loadedTrainings = loadedSessions
+                    .where((session) => !session.isMatch)
+                    .toList();
 
                 final stats = buildPlayerAttendanceStats(
                   player: player,
@@ -130,7 +134,7 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                 final kpis = buildPlayerMotivationKpis(
                   currentPlayer: player,
                   members: players,
-                  completedSessions: loadedSessions,
+                  completedSessions: loadedTrainings,
                   attendanceBySession: attendanceBySession,
                   referenceDate: now,
                 );
@@ -181,7 +185,7 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                         const SizedBox(height: 22),
                         _EvolutionChartCard(
                           player: player,
-                          completedSessions: loadedSessions,
+                          completedSessions: loadedTrainings,
                           attendanceBySession: attendanceBySession,
                         ),
                         const SizedBox(height: 22),
@@ -448,9 +452,11 @@ class _SessionHistoryTile extends StatelessWidget {
           '${formatSpanishDate(session.startTime)} · '
           '${formatTime(context, session.startTime)}',
         ),
+        leading: Icon(session.kind.icon),
         trailing: AttendanceBadge(
           status: entry.status,
           perspective: AttendanceLabelPerspective.coach,
+          kind: session.kind,
         ),
         onTap: onTap,
       ),

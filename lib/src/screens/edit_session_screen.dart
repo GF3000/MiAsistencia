@@ -61,6 +61,7 @@ class _EditSessionFormState extends ConsumerState<_EditSessionForm> {
   late DateTime _date;
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
+  late SessionKind _kind;
   bool _busy = false;
   bool _canPop = false;
 
@@ -71,6 +72,7 @@ class _EditSessionFormState extends ConsumerState<_EditSessionForm> {
     _date = DateUtils.dateOnly(widget.session.startTime);
     _startTime = TimeOfDay.fromDateTime(widget.session.startTime);
     _endTime = TimeOfDay.fromDateTime(widget.session.endTime);
+    _kind = widget.session.kind;
   }
 
   @override
@@ -141,6 +143,7 @@ class _EditSessionFormState extends ConsumerState<_EditSessionForm> {
             title: title,
             startTime: startTime,
             endTime: endTime,
+            kind: _kind,
           );
       if (mounted) {
         context.pop(updated);
@@ -208,13 +211,18 @@ class _EditSessionFormState extends ConsumerState<_EditSessionForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            SessionKindSelector(
+              value: _kind,
+              onChanged: (kind) => setState(() => _kind = kind),
+            ),
+            const SizedBox(height: 16),
             TextField(
               key: const ValueKey('edit-session-title'),
               controller: _titleController,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Título',
-                prefixIcon: Icon(Icons.sports_basketball_outlined),
+                prefixIcon: Icon(_kind.icon),
               ),
             ),
             const SizedBox(height: 16),
@@ -271,7 +279,7 @@ class _EditSessionFormState extends ConsumerState<_EditSessionForm> {
                     Expanded(
                       child: Text(
                         'Solo se editará esta sesión. El resto de la serie '
-                        'mantendrá su fecha y horario.',
+                        'mantendrá su tipo, fecha y horario.',
                       ),
                     ),
                   ],

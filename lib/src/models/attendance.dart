@@ -139,6 +139,69 @@ enum AttendanceStatus {
   static List<AttendanceStatus> get coachOnlyOptions =>
       values.where((status) => status.isCoachOnly).toList(growable: false);
 
+  /// Statuses a player can pick for a session of [kind].
+  static List<AttendanceStatus> playerOptionsFor(SessionKind kind) =>
+      switch (kind) {
+        SessionKind.training => playerOptions,
+        SessionKind.match => const [
+          AttendanceStatus.attending,
+          AttendanceStatus.injured,
+          AttendanceStatus.absent,
+        ],
+      };
+
+  /// Statuses only the coach can set for a session of [kind].
+  static List<AttendanceStatus> coachOnlyOptionsFor(SessionKind kind) =>
+      switch (kind) {
+        SessionKind.training => coachOnlyOptions,
+        SessionKind.match => const [
+          AttendanceStatus.noConvocado,
+          AttendanceStatus.absentUnannounced,
+        ],
+      };
+
+  /// The status as shown for a session of [kind]. Matches have no
+  /// court/physical split or late arrivals, so training-only statuses left
+  /// on a session later turned into a match collapse onto match statuses.
+  AttendanceStatus inKind(SessionKind kind) {
+    if (kind == SessionKind.training) {
+      return this;
+    }
+    return switch (this) {
+      AttendanceStatus.courtOnly ||
+      AttendanceStatus.gymOnly ||
+      AttendanceStatus.late ||
+      AttendanceStatus.lateUnannounced => AttendanceStatus.attending,
+      AttendanceStatus.absentLateNotice => AttendanceStatus.absent,
+      _ => this,
+    };
+  }
+
+  /// Label for a session of [kind]. In a match every player is presumed
+  /// called up and attending until they say otherwise or the coach marks
+  /// [noConvocado]; only the absence reads differently ("No disponible").
+  String labelIn(SessionKind kind, AttendanceLabelPerspective perspective) {
+    final status = inKind(kind);
+    if (kind == SessionKind.match) {
+      switch (status) {
+        case AttendanceStatus.absent:
+          return 'No disponible';
+        case AttendanceStatus.absentUnannounced:
+          return 'Falta sin avisar';
+        default:
+          break;
+      }
+    }
+    return status.labelFor(perspective);
+  }
+
+  /// Whether the player takes part in a session of [kind]: on court in a
+  /// training; called up (presumed) and available in a match.
+  bool attendsIn(SessionKind kind) => switch (kind) {
+    SessionKind.training => countsAsAttending,
+    SessionKind.match => inKind(kind) == AttendanceStatus.attending,
+  };
+
   static AttendanceStatus fromFirestore(Object? value) {
     return switch (value) {
       'injured' => AttendanceStatus.injured,
@@ -219,12 +282,13 @@ PresumptionAttendanceCount countAttendingPlayers({
   required Iterable<TeamRosterMember> members,
   required Map<String, AttendanceRecord> attendance,
   required DateTime sessionTime,
+  SessionKind kind = SessionKind.training,
 }) {
   return countPlayersByPresumption(
     members: members,
     attendance: attendance,
     sessionTime: sessionTime,
-    attends: (status) => status.countsAsAttending,
+    attends: (status) => status.attendsIn(kind),
   );
 }
 
@@ -243,6 +307,41 @@ AttendanceStatus resolveAttendanceStatus({
           AttendancePresumption.absent
       ? AttendanceStatus.absent
       : AttendanceStatus.attending;
+}
+
+/// A match roster at a glance. Every player is presumed called up unless the
+/// coach marks them `no_convocado` ([uncalled]). [attending] counts the
+/// called-up players who attend, split by attendance presumption like a
+/// training (`15/17 + 2`).
+class MatchRosterSummary {
+  const MatchRosterSummary({required this.attending, required this.uncalled});
+
+  final PresumptionAttendanceCount attending;
+  final int uncalled;
+}
+
+MatchRosterSummary buildMatchRosterSummary({
+  required Iterable<TeamRosterMember> members,
+  required Map<String, AttendanceRecord> attendance,
+  required DateTime sessionTime,
+}) {
+  final players = members
+      .where((member) => member.active && member.role == UserRole.player)
+      .toList();
+  return MatchRosterSummary(
+    attending: countAttendingPlayers(
+      members: players,
+      attendance: attendance,
+      sessionTime: sessionTime,
+      kind: SessionKind.match,
+    ),
+    uncalled: players
+        .where(
+          (player) =>
+              attendance[player.id]?.status == AttendanceStatus.noConvocado,
+        )
+        .length,
+  );
 }
 
 class CoachAttendanceSummary {
@@ -354,6 +453,8 @@ class PlayerAttendanceStats {
     required this.courtCount,
     required this.absenceCount,
     required this.injuryCount,
+    this.matchCount = 0,
+    this.uncalledMatchCount = 0,
     this.currentlyPresumedAbsent = false,
   });
 
@@ -367,6 +468,12 @@ class PlayerAttendanceStats {
   final int courtCount;
   final int absenceCount;
   final int injuryCount;
+
+  /// Matches the player was called up to and available for.
+  final int matchCount;
+
+  /// Matches the player was not called up to (`no_convocado`).
+  final int uncalledMatchCount;
 
   /// The player is presumed absent today, so no percentage is shown.
   final bool currentlyPresumedAbsent;
@@ -384,6 +491,10 @@ class PlayerAttendanceStats {
 /// and every one of them is part of the percentage's denominator. They are
 /// never counted as absences, since the absence was announced. Players
 /// presumed absent at [now] get no percentage (`null`).
+///
+/// Only trainings feed the percentage and the training columns; matches
+/// only feed [PlayerAttendanceStats.matchCount] and
+/// [PlayerAttendanceStats.uncalledMatchCount].
 PlayerAttendanceStats buildPlayerAttendanceStats({
   required TeamRosterMember player,
   required Iterable<TeamSession> sessions,
@@ -399,8 +510,23 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
   var courtCount = 0;
   var absenceCount = 0;
   var injuryCount = 0;
+  var matchCount = 0;
+  var uncalledMatchCount = 0;
 
   for (final session in sessions) {
+    if (session.isMatch) {
+      final status = resolveAttendanceStatus(
+        user: player,
+        explicitRecord: attendanceBySession[session.id]?[player.id],
+        sessionTime: session.startTime,
+      );
+      if (status == AttendanceStatus.noConvocado) {
+        uncalledMatchCount++;
+      } else if (status.attendsIn(SessionKind.match)) {
+        matchCount++;
+      }
+      continue;
+    }
     final presumedAbsent = isPresumedAbsentAt(
       member: player,
       sessionTime: session.startTime,
@@ -460,6 +586,8 @@ PlayerAttendanceStats buildPlayerAttendanceStats({
     courtCount: courtCount,
     absenceCount: absenceCount,
     injuryCount: injuryCount,
+    matchCount: matchCount,
+    uncalledMatchCount: uncalledMatchCount,
     currentlyPresumedAbsent: isPresumedAbsentAt(
       member: player,
       sessionTime: now ?? DateTime.now(),
@@ -549,12 +677,13 @@ Map<String, Map<String, AttendanceRecord>> buildAttendanceBySessionFromIndex(
       if (sessionId is! String) {
         continue;
       }
-      attendanceBySession
-              .putIfAbsent(sessionId, () => <String, AttendanceRecord>{})[memberId] =
-          AttendanceRecord(
-            userId: memberId,
-            status: AttendanceStatus.fromFirestore(statusEntry.value),
-          );
+      attendanceBySession.putIfAbsent(
+        sessionId,
+        () => <String, AttendanceRecord>{},
+      )[memberId] = AttendanceRecord(
+        userId: memberId,
+        status: AttendanceStatus.fromFirestore(statusEntry.value),
+      );
     }
   }
   return attendanceBySession;

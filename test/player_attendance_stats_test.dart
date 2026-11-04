@@ -310,7 +310,7 @@ void main() {
     final table = tester.widget<DataTable>(
       find.byKey(const ValueKey('player-attendance-table')),
     );
-    expect(table.columns, hasLength(8));
+    expect(table.columns, hasLength(10));
     expect(table.columns.every((column) => column.onSort != null), isTrue);
 
     await tester.tap(find.text('Asistencia %'));
@@ -454,10 +454,10 @@ void main() {
 
     expect(downloadedName, startsWith('asistencia-por-sesion-'));
     expect(downloadedName, endsWith('.csv'));
-    expect(downloadedContent, contains('Fecha,Sesión,Ana,Bea'));
+    expect(downloadedContent, contains('Fecha,Sesión,Tipo,Ana,Bea'));
     expect(
       downloadedContent,
-      contains('24/08/2026 19:00,Entrenamiento,No asiste,Asiste'),
+      contains('24/08/2026 19:00,Entrenamiento,Entrenamiento,No asiste,Asiste'),
     );
   });
 

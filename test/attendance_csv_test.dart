@@ -29,11 +29,11 @@ void main() {
       csv,
       contains(
         'Jugador,Asistencia %,Sesiones,Pista,Físico,Lesiones,Faltas,'
-        'Completas,Retrasos\r\n',
+        'Completas,Retrasos,Partidos,Desconvocados\r\n',
       ),
     );
-    expect(csv, contains('"García, Ana",75%,10,6,7,2,2,4,2\r\n'));
-    expect(csv, contains("'=2+2,75%,10,6,7,2,2,4,2\r\n"));
+    expect(csv, contains('"García, Ana",75%,10,6,7,2,2,4,2,0,0\r\n'));
+    expect(csv, contains("'=2+2,75%,10,6,7,2,2,4,2,0,0\r\n"));
   });
 
   test('exports sessions chronologically with players as columns', () {
@@ -97,12 +97,12 @@ void main() {
       attendanceBySession: attendance,
     );
 
-    expect(csv, contains('Fecha,Sesión,Ana,Bea\r\n'));
+    expect(csv, contains('Fecha,Sesión,Tipo,Ana,Bea\r\n'));
     final earlier = csv.indexOf(
-      "20/08/2026 09:00,'=Sesión inicial,Falta sin avisar,—",
+      "20/08/2026 09:00,'=Sesión inicial,Entrenamiento,Falta sin avisar,—",
     );
     final later = csv.indexOf(
-      '24/08/2026 19:05,"Entreno, tarde",Llega tarde,Solo pista',
+      '24/08/2026 19:05,"Entreno, tarde",Entrenamiento,Llega tarde,Solo pista',
     );
     expect(earlier, greaterThanOrEqualTo(0));
     expect(later, greaterThan(earlier));

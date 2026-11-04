@@ -57,7 +57,9 @@ class NextSessionCard extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'PRÓXIMA SESIÓN',
+                          session.isMatch
+                              ? 'PRÓXIMO PARTIDO'
+                              : 'PRÓXIMA SESIÓN',
                           style: TextStyle(
                             color: Colors.blueGrey.shade600,
                             fontSize: 11,
@@ -118,7 +120,9 @@ class _PlayerQuickAttendanceState
     AttendanceRecord current,
     AttendanceStatus status,
   ) async {
-    if (_savingStatus != null || current.status.playerEquivalent == status) {
+    final kind = widget.session.kind;
+    if (_savingStatus != null ||
+        current.status.inKind(kind).playerEquivalent == status) {
       return;
     }
     setState(() => _savingStatus = status);
@@ -144,6 +148,7 @@ class _PlayerQuickAttendanceState
         context: context,
         status: status,
         initialNote: current.note ?? '',
+        kind: kind,
       );
       if (note != null) {
         await repository.saveAttendance(
@@ -158,7 +163,9 @@ class _PlayerQuickAttendanceState
       if (mounted) {
         showAppNotification(
           context,
-          message: 'Asistencia actualizada: ${status.playerLabel}.',
+          message:
+              'Asistencia actualizada: '
+              '${status.labelIn(kind, AttendanceLabelPerspective.player)}.',
           type: AppNotificationType.success,
         );
       }
@@ -197,6 +204,7 @@ class _PlayerQuickAttendanceState
             child: AttendanceBadge(
               status: current.status,
               perspective: AttendanceLabelPerspective.player,
+              kind: widget.session.kind,
             ),
           );
         }
@@ -211,6 +219,7 @@ class _PlayerQuickAttendanceState
             PlayerAttendanceChoices(
               selectedStatus: current.status,
               savingStatus: _savingStatus,
+              kind: widget.session.kind,
               onSelected: (status) => _changeStatus(current, status),
             ),
             if (current.note?.isNotEmpty == true) ...[
@@ -250,6 +259,13 @@ class _CoachNextSessionSummary extends ConsumerWidget {
             if (!membersSnapshot.hasData || !attendanceSnapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
+            final matchSummary = session.isMatch
+                ? buildMatchRosterSummary(
+                    members: membersSnapshot.data!,
+                    attendance: attendanceSnapshot.data!,
+                    sessionTime: session.startTime,
+                  )
+                : null;
             final summary = buildCoachAttendanceSummary(
               members: membersSnapshot.data!,
               attendance: attendanceSnapshot.data!,
@@ -260,20 +276,35 @@ class _CoachNextSessionSummary extends ConsumerWidget {
               children: [
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final cards = [
-                      _SummaryMetric(
-                        icon: Icons.sports_basketball_outlined,
-                        label: 'En pista',
-                        value: summary.court.label,
-                        color: const Color(0xFF2563A5),
-                      ),
-                      _SummaryMetric(
-                        icon: Icons.fitness_center_outlined,
-                        label: 'En físico',
-                        value: summary.physical.label,
-                        color: const Color(0xFF7650A8),
-                      ),
-                    ];
+                    final cards = matchSummary != null
+                        ? [
+                            _SummaryMetric(
+                              icon: Icons.check_circle_outline,
+                              label: 'Asisten',
+                              value: matchSummary.attending.label,
+                              color: AppTheme.primary,
+                            ),
+                            _SummaryMetric(
+                              icon: AttendanceStatus.noConvocado.icon,
+                              label: 'No convocados',
+                              value: '${matchSummary.uncalled}',
+                              color: AttendanceStatus.noConvocado.color,
+                            ),
+                          ]
+                        : [
+                            _SummaryMetric(
+                              icon: Icons.sports_basketball_outlined,
+                              label: 'En pista',
+                              value: summary.court.label,
+                              color: const Color(0xFF2563A5),
+                            ),
+                            _SummaryMetric(
+                              icon: Icons.fitness_center_outlined,
+                              label: 'En físico',
+                              value: summary.physical.label,
+                              color: const Color(0xFF7650A8),
+                            ),
+                          ];
                     if (constraints.maxWidth >= 520) {
                       return Row(
                         children: [
@@ -292,7 +323,8 @@ class _CoachNextSessionSummary extends ConsumerWidget {
                     );
                   },
                 ),
-                if (summary.latePlayerNames.isNotEmpty) ...[
+                if (matchSummary == null &&
+                    summary.latePlayerNames.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.all(14),

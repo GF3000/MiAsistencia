@@ -29,6 +29,7 @@ class SessionRepository {
     required DateTime endTime,
     required Set<int> weekdays,
     required int weeks,
+    SessionKind kind = SessionKind.training,
   }) async {
     final occurrences = buildSessionOccurrences(
       firstDate: firstDate,
@@ -53,6 +54,7 @@ class SessionRepository {
         'startTime': Timestamp.fromDate(occurrence.start),
         'endTime': Timestamp.fromDate(occurrence.end),
         'recurrenceSeriesId': seriesId,
+        'kind': kind.firestoreValue,
         'createdAt': FieldValue.serverTimestamp(),
       });
     }
@@ -65,16 +67,19 @@ class SessionRepository {
     required String title,
     required DateTime startTime,
     required DateTime endTime,
+    required SessionKind kind,
   }) async {
     await _firestore.collection('sessions').doc(session.id).update({
       'title': title.trim(),
       'startTime': Timestamp.fromDate(startTime),
       'endTime': Timestamp.fromDate(endTime),
+      'kind': kind.firestoreValue,
     });
     return session.copyWith(
       title: title.trim(),
       startTime: startTime,
       endTime: endTime,
+      kind: kind,
     );
   }
 
@@ -83,6 +88,7 @@ class SessionRepository {
     String? title,
     DateTime? startTime,
     DateTime? endTime,
+    SessionKind? kind,
   }) async {
     final sessionList = sessions.toList();
     for (var offset = 0; offset < sessionList.length; offset += 450) {
@@ -102,6 +108,9 @@ class SessionRepository {
           updates['endTime'] = Timestamp.fromDate(
             _combineDateAndTime(session.startTime, endTime),
           );
+        }
+        if (kind != null) {
+          updates['kind'] = kind.firestoreValue;
         }
         batch.update(
           _firestore.collection('sessions').doc(session.id),

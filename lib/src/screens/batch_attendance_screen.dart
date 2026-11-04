@@ -367,8 +367,16 @@ class _BatchAttendanceEditorState
     }
   }
 
+  /// Match options only when every selected session is a match; a mixed
+  /// selection keeps the training options (shown as their match
+  /// equivalent on matches).
+  SessionKind get _kind => widget.sessions.every((session) => session.isMatch)
+      ? SessionKind.match
+      : SessionKind.training;
+
   @override
   Widget build(BuildContext context) {
+    final kind = _kind;
     final sessionCountLabel =
         '${widget.sessions.length} '
         '${widget.sessions.length == 1 ? 'sesión' : 'sesiones'}';
@@ -421,12 +429,14 @@ class _BatchAttendanceEditorState
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: AttendanceStatus.playerOptions
+              children: AttendanceStatus.playerOptionsFor(kind)
                   .map(
                     (status) => ChoiceChip(
                       selected: _status == status,
                       avatar: Icon(status.icon, size: 18, color: status.color),
-                      label: Text(status.playerLabel),
+                      label: Text(
+                        status.labelIn(kind, AttendanceLabelPerspective.player),
+                      ),
                       onSelected: (_) => setState(() => _status = status),
                     ),
                   )

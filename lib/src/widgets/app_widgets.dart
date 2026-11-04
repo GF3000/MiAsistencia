@@ -1,6 +1,38 @@
 import 'package:flutter/material.dart';
 
 import '../models/attendance.dart';
+import '../models/team_session.dart';
+
+/// Training / match toggle used when creating or editing sessions.
+class SessionKindSelector extends StatelessWidget {
+  const SessionKindSelector({
+    required this.value,
+    required this.onChanged,
+    super.key,
+  });
+
+  final SessionKind value;
+  final ValueChanged<SessionKind>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<SessionKind>(
+      key: const ValueKey('session-kind-selector'),
+      segments: [
+        for (final kind in SessionKind.values)
+          ButtonSegment(
+            value: kind,
+            icon: Icon(kind.icon),
+            label: Text(kind.label),
+          ),
+      ],
+      selected: {value},
+      onSelectionChanged: onChanged == null
+          ? null
+          : (selection) => onChanged!(selection.single),
+    );
+  }
+}
 
 class AppPageBody extends StatelessWidget {
   const AppPageBody({required this.child, this.maxWidth = 760, super.key});
@@ -29,14 +61,17 @@ class AttendanceBadge extends StatelessWidget {
   const AttendanceBadge({
     required this.status,
     required this.perspective,
+    this.kind = SessionKind.training,
     super.key,
   });
 
   final AttendanceStatus status;
   final AttendanceLabelPerspective perspective;
+  final SessionKind kind;
 
   @override
   Widget build(BuildContext context) {
+    final status = this.status.inKind(kind);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -49,7 +84,7 @@ class AttendanceBadge extends StatelessWidget {
           Icon(status.icon, color: status.color, size: 17),
           const SizedBox(width: 6),
           Text(
-            status.labelFor(perspective),
+            status.labelIn(kind, perspective),
             style: TextStyle(
               color: status.color,
               fontWeight: FontWeight.w700,

@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../models/attendance.dart';
+import '../models/team_session.dart';
 
 Future<String?> showOptionalAttendanceNoteDialog({
   required BuildContext context,
   required AttendanceStatus status,
   String initialNote = '',
+  SessionKind kind = SessionKind.training,
 }) {
   return showDialog<String>(
     context: context,
-    builder: (dialogContext) =>
-        _OptionalAttendanceNoteDialog(status: status, initialNote: initialNote),
+    builder: (dialogContext) => _OptionalAttendanceNoteDialog(
+      status: status.inKind(kind),
+      initialNote: initialNote,
+      kind: kind,
+    ),
   );
 }
 
@@ -18,10 +23,12 @@ class _OptionalAttendanceNoteDialog extends StatefulWidget {
   const _OptionalAttendanceNoteDialog({
     required this.status,
     required this.initialNote,
+    required this.kind,
   });
 
   final AttendanceStatus status;
   final String initialNote;
+  final SessionKind kind;
 
   @override
   State<_OptionalAttendanceNoteDialog> createState() =>
@@ -60,7 +67,7 @@ class _OptionalAttendanceNoteDialogState
               Icon(status.icon, color: status.color, size: 34),
               const SizedBox(height: 12),
               Text(
-                status.playerLabel,
+                status.labelIn(widget.kind, AttendanceLabelPerspective.player),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
@@ -201,26 +208,29 @@ class PlayerAttendanceChoices extends StatelessWidget {
     required this.onSelected,
     this.savingStatus,
     this.enabled = true,
+    this.kind = SessionKind.training,
     super.key,
   });
 
   final AttendanceStatus selectedStatus;
   final AttendanceStatus? savingStatus;
   final bool enabled;
+  final SessionKind kind;
   final ValueChanged<AttendanceStatus> onSelected;
 
   @override
   Widget build(BuildContext context) {
+    final selected = selectedStatus.inKind(kind).playerEquivalent;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: AttendanceStatus.playerOptions.map((status) {
+      children: AttendanceStatus.playerOptionsFor(kind).map((status) {
         final saving = savingStatus == status;
         return AttendanceStatusChip(
           key: ValueKey('player-status-${status.firestoreValue}'),
           status: status,
-          label: status.playerLabel,
-          selected: selectedStatus.playerEquivalent == status,
+          label: status.labelIn(kind, AttendanceLabelPerspective.player),
+          selected: selected == status,
           onSelected: enabled && savingStatus == null
               ? (_) => onSelected(status)
               : null,
@@ -282,6 +292,7 @@ Future<AttendanceDraft?> showAttendanceEditor({
   required AttendanceRecord initialValue,
   required String title,
   bool showCoachOptions = false,
+  SessionKind kind = SessionKind.training,
 }) {
   return showModalBottomSheet<AttendanceDraft>(
     context: context,
@@ -291,6 +302,7 @@ Future<AttendanceDraft?> showAttendanceEditor({
       initialValue: initialValue,
       title: title,
       showCoachOptions: showCoachOptions,
+      kind: kind,
     ),
   );
 }
@@ -300,11 +312,13 @@ class _AttendanceEditor extends StatefulWidget {
     required this.initialValue,
     required this.title,
     required this.showCoachOptions,
+    required this.kind,
   });
 
   final AttendanceRecord initialValue;
   final String title;
   final bool showCoachOptions;
+  final SessionKind kind;
 
   @override
   State<_AttendanceEditor> createState() => _AttendanceEditorState();
@@ -317,11 +331,12 @@ class _AttendanceEditorState extends State<_AttendanceEditor> {
   @override
   void initState() {
     super.initState();
-    _status = widget.initialValue.status == AttendanceStatus.notApplicable
+    final initial = widget.initialValue.status.inKind(widget.kind);
+    _status = initial == AttendanceStatus.notApplicable
         ? AttendanceStatus.attending
         : widget.showCoachOptions
-        ? widget.initialValue.status
-        : widget.initialValue.status.playerEquivalent;
+        ? initial
+        : initial.playerEquivalent;
     _noteController = TextEditingController(
       text: widget.initialValue.note ?? '',
     );
@@ -358,7 +373,8 @@ class _AttendanceEditorState extends State<_AttendanceEditor> {
             Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 18),
             _StatusChoices(
-              statuses: AttendanceStatus.playerOptions,
+              statuses: AttendanceStatus.playerOptionsFor(widget.kind),
+              kind: widget.kind,
               selected: _status,
               perspective: widget.showCoachOptions
                   ? AttendanceLabelPerspective.coach
@@ -373,7 +389,8 @@ class _AttendanceEditorState extends State<_AttendanceEditor> {
               ),
               const SizedBox(height: 10),
               _StatusChoices(
-                statuses: AttendanceStatus.coachOnlyOptions,
+                statuses: AttendanceStatus.coachOnlyOptionsFor(widget.kind),
+                kind: widget.kind,
                 selected: _status,
                 perspective: AttendanceLabelPerspective.coach,
                 onSelected: (status) => setState(() => _status = status),
@@ -409,12 +426,14 @@ class _AttendanceEditorState extends State<_AttendanceEditor> {
 class _StatusChoices extends StatelessWidget {
   const _StatusChoices({
     required this.statuses,
+    required this.kind,
     required this.selected,
     required this.perspective,
     required this.onSelected,
   });
 
   final List<AttendanceStatus> statuses;
+  final SessionKind kind;
   final AttendanceStatus selected;
   final AttendanceLabelPerspective perspective;
   final ValueChanged<AttendanceStatus> onSelected;
@@ -428,7 +447,7 @@ class _StatusChoices extends StatelessWidget {
           .map(
             (status) => AttendanceStatusChip(
               status: status,
-              label: status.labelFor(perspective),
+              label: status.labelIn(kind, perspective),
               selected: selected == status,
               onSelected: (_) => onSelected(status),
             ),

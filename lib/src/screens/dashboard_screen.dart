@@ -143,7 +143,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             error: (error, stackTrace) => 'Tu equipo',
                             data: (team) => team?.name ?? 'Tu equipo',
                           ),
-                          completedSessions: completed,
+                          // Matches never count towards attendance.
+                          completedSessions: completed
+                              .where((session) => !session.isMatch)
+                              .toList(),
                         ),
                         const SizedBox(height: 24),
                         if (selectedSessions.isEmpty &&
@@ -817,10 +820,7 @@ class _SessionCard extends ConsumerWidget {
                       color: AppTheme.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    child: const Icon(
-                      Icons.sports_basketball_outlined,
-                      color: AppTheme.primary,
-                    ),
+                    child: Icon(session.kind.icon, color: AppTheme.primary),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -886,6 +886,7 @@ class _SessionCard extends ConsumerWidget {
                               sessionTime: session.startTime,
                             ),
                         perspective: AttendanceLabelPerspective.player,
+                        kind: session.kind,
                       ),
                     ),
                   if (user.isCoach) ...[
@@ -937,11 +938,23 @@ class _AttendingPlayerCount extends ConsumerWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               );
             }
-            final attending = countAttendingPlayers(
-              members: players,
-              attendance: attendanceSnapshot.data!,
-              sessionTime: session.startTime,
-            );
+            final attendance = attendanceSnapshot.data!;
+            final String countLabel;
+            if (session.isMatch) {
+              final summary = buildMatchRosterSummary(
+                members: players,
+                attendance: attendance,
+                sessionTime: session.startTime,
+              );
+              countLabel = '${summary.attending.label} asisten';
+            } else {
+              final attending = countAttendingPlayers(
+                members: players,
+                attendance: attendance,
+                sessionTime: session.startTime,
+              );
+              countLabel = '${attending.label} asisten';
+            }
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -952,7 +965,7 @@ class _AttendingPlayerCount extends ConsumerWidget {
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  '${attending.label} asisten',
+                  countLabel,
                   style: const TextStyle(
                     color: AppTheme.primary,
                     fontSize: 12,

@@ -19,6 +19,8 @@ String buildPlayerAttendanceCsv(Iterable<PlayerAttendanceCsvRow> rows) {
       'Faltas',
       'Completas',
       'Retrasos',
+      'Partidos',
+      'Desconvocados',
     ],
     for (final row in rows)
       [
@@ -33,6 +35,8 @@ String buildPlayerAttendanceCsv(Iterable<PlayerAttendanceCsvRow> rows) {
         row.stats.absenceCount,
         row.stats.attendanceCount,
         row.stats.lateCount,
+        row.stats.matchCount,
+        row.stats.uncalledMatchCount,
       ],
   ]);
 }
@@ -54,17 +58,23 @@ String buildSessionAttendanceCsv({
     });
 
   return _encodeCsv([
-    ['Fecha', 'Sesión', ...orderedPlayers.map((player) => player.fullName)],
+    [
+      'Fecha',
+      'Sesión',
+      'Tipo',
+      ...orderedPlayers.map((player) => player.fullName),
+    ],
     for (final session in orderedSessions)
       [
         _formatDateTime(session.startTime),
         session.title,
+        session.kind.label,
         for (final player in orderedPlayers)
           resolveAttendanceStatus(
             user: player,
             explicitRecord: attendanceBySession[session.id]?[player.id],
             sessionTime: session.startTime,
-          ).coachLabel,
+          ).labelIn(session.kind, AttendanceLabelPerspective.coach),
       ],
   ]);
 }

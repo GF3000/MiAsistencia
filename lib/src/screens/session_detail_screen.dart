@@ -259,7 +259,7 @@ class _SessionHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(
-              Icons.sports_basketball_outlined,
+              session.kind.icon,
               size: 38,
               color: Theme.of(context).colorScheme.primary,
             ),
@@ -276,13 +276,23 @@ class _SessionHeader extends StatelessWidget {
               '${formatTime(context, session.endTime)}',
               style: TextStyle(color: Colors.blueGrey.shade600),
             ),
-            if (session.recurrenceSeriesId != null) ...[
-              const SizedBox(height: 12),
-              const Chip(
-                avatar: Icon(Icons.repeat, size: 18),
-                label: Text('Sesión recurrente'),
-              ),
-            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  key: const ValueKey('session-kind-chip'),
+                  avatar: Icon(session.kind.icon, size: 18),
+                  label: Text(session.kind.label),
+                ),
+                if (session.recurrenceSeriesId != null)
+                  const Chip(
+                    avatar: Icon(Icons.repeat, size: 18),
+                    label: Text('Sesión recurrente'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
@@ -313,7 +323,9 @@ class _PlayerAttendancePanelState
     AttendanceRecord current,
     AttendanceStatus status,
   ) async {
-    if (_savingStatus != null || current.status.playerEquivalent == status) {
+    final kind = widget.session.kind;
+    if (_savingStatus != null ||
+        current.status.inKind(kind).playerEquivalent == status) {
       return;
     }
 
@@ -341,6 +353,7 @@ class _PlayerAttendancePanelState
         context: context,
         status: status,
         initialNote: current.note ?? '',
+        kind: kind,
       );
       if (note != null) {
         await repository.saveAttendance(
@@ -355,7 +368,9 @@ class _PlayerAttendancePanelState
       if (mounted) {
         showAppNotification(
           context,
-          message: 'Asistencia actualizada: ${status.playerLabel}.',
+          message:
+              'Asistencia actualizada: '
+              '${status.labelIn(kind, AttendanceLabelPerspective.player)}.',
           type: AppNotificationType.success,
         );
       }
@@ -436,9 +451,10 @@ class _PlayerAttendancePanelState
               user: widget.currentUser,
               sessionTime: widget.session.startTime,
             );
+        final kind = widget.session.kind;
+        final shownStatus = attendance.status.inKind(kind);
         final canEdit =
-            canPlayerEditAttendance(widget.session) &&
-            !attendance.status.isCoachOnly;
+            canPlayerEditAttendance(widget.session) && !shownStatus.isCoachOnly;
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -456,6 +472,7 @@ class _PlayerAttendancePanelState
                   PlayerAttendanceChoices(
                     selectedStatus: attendance.status,
                     savingStatus: _savingStatus,
+                    kind: kind,
                     onSelected: (status) => _changeStatus(attendance, status),
                   ),
                 ] else
@@ -464,6 +481,7 @@ class _PlayerAttendancePanelState
                     child: AttendanceBadge(
                       status: attendance.status,
                       perspective: AttendanceLabelPerspective.player,
+                      kind: kind,
                     ),
                   ),
                 const SizedBox(height: 24),
@@ -489,7 +507,7 @@ class _PlayerAttendancePanelState
                               : attendance.status ==
                                     AttendanceStatus.noConvocado
                               ? Icons.block_outlined
-                              : attendance.status.isCoachOnly
+                              : shownStatus.isCoachOnly
                               ? Icons.assignment_late_outlined
                               : Icons.lock_clock_outlined,
                         ),
@@ -502,7 +520,7 @@ class _PlayerAttendancePanelState
                                 : attendance.status ==
                                       AttendanceStatus.noConvocado
                                 ? 'No has sido convocado para esta sesión.'
-                                : attendance.status.isCoachOnly
+                                : shownStatus.isCoachOnly
                                 ? 'El entrenador ha registrado esta incidencia.'
                                 : 'La sesión ha finalizado. Tu asistencia es '
                                       'de solo lectura.',
@@ -651,6 +669,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
       initialValue: members.first,
       title: 'Aplicar estado a ${members.length} jugadores',
       showCoachOptions: true,
+      kind: widget.session.kind,
     );
     if (draft == null || !mounted) {
       return;
@@ -746,7 +765,8 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
             final attendingTagCounts = countMembersByTag(
               memberIds: members
                   .where(
-                    (member) => attendance[member.id]!.status.countsAsAttending,
+                    (member) =>
+                        attendance[member.id]!.status.attendsIn(session.kind),
                   )
                   .map((member) => member.id),
               assignments: assignments,
@@ -775,6 +795,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
               assignments: assignments,
               tags: tags,
               query: query,
+              kind: session.kind,
             );
             // Players who joined after this session can't get a status for
             // it, so "Seleccionar todos" leaves them out.
@@ -800,6 +821,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                 const SizedBox(height: 12),
                 _AttendanceSummary(
                   attendance: attendance.values,
+                  kind: session.kind,
                   selectedStatus: _selectedStatus,
                   onStatusSelected: (status) =>
                       setState(() => _selectedStatus = status),
@@ -870,6 +892,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                       child: CoachAttendanceListItem(
                         member: member,
                         record: record,
+                        kind: session.kind,
                         selectionMode: selectionMode,
                         selected: _selection.selectedIds.contains(member.id),
                         updateLabel: record.updatedAt == null
@@ -887,6 +910,7 @@ class _CoachAttendancePanelState extends ConsumerState<_CoachAttendancePanel> {
                             initialValue: record,
                             title: member.fullName,
                             showCoachOptions: true,
+                            kind: session.kind,
                           );
                           if (draft != null && context.mounted) {
                             await _saveAttendance(
@@ -943,11 +967,13 @@ class CoachAttendanceListItem extends StatelessWidget {
     this.selectionMode = false,
     this.selected = false,
     this.onLongPress,
+    this.kind = SessionKind.training,
     super.key,
   });
 
   final TeamRosterMember member;
   final AttendanceRecord record;
+  final SessionKind kind;
   final String updateLabel;
   final VoidCallback onTap;
   final bool selectionMode;
@@ -995,6 +1021,7 @@ class CoachAttendanceListItem extends StatelessWidget {
         trailing: AttendanceBadge(
           status: record.status,
           perspective: AttendanceLabelPerspective.coach,
+          kind: kind,
         ),
         onTap: onTap,
         onLongPress: onLongPress,
@@ -1013,11 +1040,14 @@ List<TeamRosterMember> filterSessionMembers({
   PlayerTagAssignments assignments = const {},
   List<PlayerTag> tags = const [],
   String query = '',
+  SessionKind kind = SessionKind.training,
 }) {
   final activeTagId = tags.any((tag) => tag.id == tagId) ? tagId : null;
   return members
       .where(
-        (member) => status == null || attendance[member.id]?.status == status,
+        (member) =>
+            status == null ||
+            attendance[member.id]?.status.inKind(kind) == status,
       )
       .where(
         (member) =>
@@ -1267,11 +1297,13 @@ class _TagAttendanceBadge extends StatelessWidget {
 class _AttendanceSummary extends StatelessWidget {
   const _AttendanceSummary({
     required this.attendance,
+    required this.kind,
     required this.selectedStatus,
     required this.onStatusSelected,
   });
 
   final Iterable<AttendanceRecord> attendance;
+  final SessionKind kind;
   final AttendanceStatus? selectedStatus;
   final ValueChanged<AttendanceStatus?> onStatusSelected;
 
@@ -1279,7 +1311,8 @@ class _AttendanceSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final counts = {for (final status in AttendanceStatus.values) status: 0};
     for (final record in attendance) {
-      counts[record.status] = counts[record.status]! + 1;
+      final status = record.status.inKind(kind);
+      counts[status] = counts[status]! + 1;
     }
     return Wrap(
       spacing: 8,
@@ -1290,7 +1323,9 @@ class _AttendanceSummary extends StatelessWidget {
             (status) => AttendanceStatusChip(
               selected: status == selectedStatus,
               status: status,
-              label: '${status.coachLabel}: ${counts[status]}',
+              label:
+                  '${status.labelIn(kind, AttendanceLabelPerspective.coach)}: '
+                  '${counts[status]}',
               onSelected: (_) =>
                   onStatusSelected(status == selectedStatus ? null : status),
             ),

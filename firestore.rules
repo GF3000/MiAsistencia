@@ -480,6 +480,11 @@ service cloud.firestore {
     }
 
     match /sessions/{sessionId} {
+      // Missing kind = training (sessions created before matches existed).
+      function hasValidSessionKind(data) {
+        return !('kind' in data) || data.kind in ['training', 'match'];
+      }
+
       allow read: if belongsToTeam(resource.data.teamId);
       allow create: if isTeamCoach(request.resource.data.teamId)
         && request.resource.data.keys().hasOnly([
@@ -488,8 +493,10 @@ service cloud.firestore {
           'startTime',
           'endTime',
           'recurrenceSeriesId',
+          'kind',
           'createdAt'
         ])
+        && hasValidSessionKind(request.resource.data)
         && request.resource.data.title is string
         && request.resource.data.startTime is timestamp
         && request.resource.data.endTime is timestamp
@@ -503,7 +510,8 @@ service cloud.firestore {
         && request.resource.data.endTime > request.resource.data.startTime
         && request.resource.data.recurrenceSeriesId
           == resource.data.recurrenceSeriesId
-        && request.resource.data.createdAt == resource.data.createdAt;
+        && request.resource.data.createdAt == resource.data.createdAt
+        && hasValidSessionKind(request.resource.data);
       allow delete: if isTeamCoach(resource.data.teamId);
 
       match /attendance/{userId} {

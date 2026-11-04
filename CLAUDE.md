@@ -52,7 +52,8 @@ repositories.
   membership periods, `managedByCoach`, default attendance. **Authoritative
   source for authorization** (rules and app).
 - `teamInvites/{teamId}` — the team's current six-character invite code.
-- `sessions/{sessionId}` (with `teamId`) and `sessions/{id}/attendance/{memberId}`.
+- `sessions/{sessionId}` (with `teamId`, optional `kind`: `training` |
+  `match`; missing = training) and `sessions/{id}/attendance/{memberId}`.
 - `sessionSeries/{id}` — recurring sessions.
 
 Attendance statuses (`AttendanceStatus` in `lib/src/models/attendance.dart`,
@@ -61,7 +62,16 @@ stored as `firestoreValue`): `attending`, `injured`, `court_only`, `gym_only`,
 `absent_late_notice`, `no_convocado`. `notApplicable` is UI-only and throws if
 stored. **If you add or rename a status, also update
 `ATTENDANCE_STATUS_VALUES` in `functions/src/attendanceIndex.ts`** and the
-rules if they validate it.
+rules (`hasValidAttendanceShape`), and deploy functions + rules before the
+client that writes it.
+
+Matches vs trainings: a match reuses the same statuses with match labels
+(`AttendanceStatus.labelIn(kind, …)`). Every player is **presumed called up
+and available** (`attending` = "Disponible" for the player, "Convocado" for
+the coach); the player may mark `absent` ("No disponible") or `injured`; the
+coach marks `no_convocado` (locks the player) or `absent_unannounced`.
+Training-only statuses on a session later turned into a match collapse via
+`inKind`. Matches never count towards the attendance % or training columns.
 
 ### Attendance index (app depends on Cloud Functions)
 

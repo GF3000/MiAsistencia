@@ -1,4 +1,31 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+
+/// Whether a session is a training or a match. Sessions stored without a
+/// `kind` (everything created before matches existed) are trainings.
+enum SessionKind {
+  training,
+  match;
+
+  String get firestoreValue => switch (this) {
+    SessionKind.training => 'training',
+    SessionKind.match => 'match',
+  };
+
+  String get label => switch (this) {
+    SessionKind.training => 'Entrenamiento',
+    SessionKind.match => 'Partido',
+  };
+
+  IconData get icon => switch (this) {
+    SessionKind.training => Icons.sports_basketball_outlined,
+    SessionKind.match => Icons.emoji_events_outlined,
+  };
+
+  static SessionKind fromFirestore(Object? value) {
+    return value == 'match' ? SessionKind.match : SessionKind.training;
+  }
+}
 
 class TeamSession {
   const TeamSession({
@@ -8,6 +35,7 @@ class TeamSession {
     required this.startTime,
     required this.endTime,
     this.recurrenceSeriesId,
+    this.kind = SessionKind.training,
   });
 
   final String id;
@@ -16,11 +44,15 @@ class TeamSession {
   final DateTime startTime;
   final DateTime endTime;
   final String? recurrenceSeriesId;
+  final SessionKind kind;
+
+  bool get isMatch => kind == SessionKind.match;
 
   TeamSession copyWith({
     String? title,
     DateTime? startTime,
     DateTime? endTime,
+    SessionKind? kind,
   }) {
     return TeamSession(
       id: id,
@@ -29,6 +61,7 @@ class TeamSession {
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       recurrenceSeriesId: recurrenceSeriesId,
+      kind: kind ?? this.kind,
     );
   }
 
@@ -43,6 +76,7 @@ class TeamSession {
       startTime: (data['startTime'] as Timestamp).toDate(),
       endTime: (data['endTime'] as Timestamp).toDate(),
       recurrenceSeriesId: data['recurrenceSeriesId'] as String?,
+      kind: SessionKind.fromFirestore(data['kind']),
     );
   }
 }

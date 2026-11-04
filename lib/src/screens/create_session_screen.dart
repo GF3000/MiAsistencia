@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../models/team_session.dart';
 import '../providers.dart';
 import '../widgets/app_notification.dart';
 import '../widgets/app_widgets.dart';
@@ -18,7 +19,10 @@ class CreateSessionScreen extends ConsumerStatefulWidget {
 }
 
 class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
-  final _titleController = TextEditingController(text: 'Entrenamiento');
+  final _titleController = TextEditingController(
+    text: SessionKind.training.label,
+  );
+  SessionKind _kind = SessionKind.training;
   late DateTime _date;
   TimeOfDay _startTime = const TimeOfDay(hour: 19, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 20, minute: 30);
@@ -41,6 +45,16 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   void dispose() {
     _titleController.dispose();
     super.dispose();
+  }
+
+  void _selectKind(SessionKind kind) {
+    setState(() {
+      // Keep a custom title; only swap the untouched default one.
+      if (_titleController.text.trim() == _kind.label) {
+        _titleController.text = kind.label;
+      }
+      _kind = kind;
+    });
   }
 
   Future<void> _selectDate() async {
@@ -122,6 +136,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
             endTime: DateTime(2000, 1, 1, _endTime.hour, _endTime.minute),
             weekdays: _recurring ? _weekdays : {_date.weekday},
             weeks: _recurring ? _weeks : 1,
+            kind: _kind,
           );
       if (!mounted) {
         return;
@@ -193,12 +208,14 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            SessionKindSelector(value: _kind, onChanged: _selectKind),
+            const SizedBox(height: 16),
             TextField(
               controller: _titleController,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Título',
-                prefixIcon: Icon(Icons.sports_basketball_outlined),
+                prefixIcon: Icon(_kind.icon),
               ),
             ),
             const SizedBox(height: 16),

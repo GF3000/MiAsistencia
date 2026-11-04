@@ -25,6 +25,8 @@ class _BatchEditSessionsScreenState
   late TimeOfDay _endTime;
   bool _changeTitle = false;
   bool _changeTime = false;
+  bool _changeKind = false;
+  late SessionKind _kind;
   bool _busy = false;
   bool _canPop = false;
 
@@ -40,6 +42,7 @@ class _BatchEditSessionsScreenState
     );
     _startTime = TimeOfDay.fromDateTime(first.startTime);
     _endTime = TimeOfDay.fromDateTime(first.endTime);
+    _kind = first.kind;
   }
 
   @override
@@ -65,7 +68,7 @@ class _BatchEditSessionsScreenState
   }
 
   Future<void> _save() async {
-    if (!_changeTitle && !_changeTime) {
+    if (!_changeTitle && !_changeTime && !_changeKind) {
       _showWarning('Selecciona al menos un cambio.');
       return;
     }
@@ -94,6 +97,7 @@ class _BatchEditSessionsScreenState
             endTime: _changeTime
                 ? DateTime(2000, 1, 1, _endTime.hour, _endTime.minute)
                 : null,
+            kind: _changeKind ? _kind : null,
           );
       if (mounted) {
         context.pop(true);
@@ -177,8 +181,8 @@ class _BatchEditSessionsScreenState
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Cada sesión conservará su fecha. El nombre y el '
-                      'horario se aplicarán a todas las seleccionadas.',
+                      'Cada sesión conservará su fecha. El tipo, el nombre y '
+                      'el horario se aplicarán a todas las seleccionadas.',
                     ),
                   ),
                 ],
@@ -191,6 +195,22 @@ class _BatchEditSessionsScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    SwitchListTile(
+                      key: const ValueKey('batch-change-kind'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Cambiar tipo'),
+                      subtitle: const Text('Entrenamiento o partido.'),
+                      value: _changeKind,
+                      onChanged: (value) => setState(() => _changeKind = value),
+                    ),
+                    if (_changeKind) ...[
+                      const SizedBox(height: 8),
+                      SessionKindSelector(
+                        value: _kind,
+                        onChanged: (kind) => setState(() => _kind = kind),
+                      ),
+                    ],
+                    const Divider(height: 30),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Cambiar nombre'),
