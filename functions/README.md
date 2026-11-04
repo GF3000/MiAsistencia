@@ -1,16 +1,71 @@
-# MiAsistencia Cloud Functions — Phase 2: multi-team data migration
+# MiAsistencia Cloud Functions
 
-This package contains the Cloud Functions (v2, Node.js 22, TypeScript)
-backend for migrating the legacy single-team `users/{userId}` schema into
-the new top-level `teamMemberships/{teamId}__{memberId}` schema, plus a
-temporary compatibility trigger that keeps both schemas in sync while old
-Flutter clients are still in the field.
+This package contains the Cloud Functions (v2, Node.js 22, TypeScript,
+region `europe-west1`) for MiAsistencia. It has two parts:
 
-It intentionally does **not** touch `firestore.rules` or the Flutter app —
-those are handled separately. This backend can be deployed and exercised
-against production data safely: `dryRun` and `verify` never write anything,
-and `apply` is idempotent/resumable and never overwrites data it doesn't
-recognize.
+| Function | Kind | Purpose |
+|---|---|---|
+| `attendanceIndexSync` | Firestore trigger on `sessions/{sessionId}/attendance/{memberId}` | Mirrors each attendance status into `teams/{teamId}/attendanceIndex/{memberId}`. **Required by the app.** |
+| `attendanceIndexSessionCleanup` | Firestore trigger on `sessions/{sessionId}` | Removes a deleted session's entries from the index. **Required by the app.** |
+| `attendanceIndexRebuild` | HTTPS (token-protected) | Paginated backfill/repair of the attendance index. |
+| `multiTeamMigration` | HTTPS (token-protected) | One-off migration from the legacy single-team schema to `teamMemberships`. |
+| `legacyUserCompatSync` | Firestore trigger on `users/{userId}` | Temporary compatibility sync for old clients during the migration. |
+
+See [Attendance index](#attendance-index) below. The rest of this document
+(sections 1–5 onwards) describes the **Phase 2 multi-team migration**: it
+migrates the legacy single-team `users/{userId}` schema into the top-level
+`teamMemberships/{teamId}__{memberId}` schema, plus a temporary compatibility
+trigger that keeps both schemas in sync while old Flutter clients are still
+in the field.
+
+The migration backend does **not** touch `firestore.rules` or the Flutter
+app. It can be deployed and exercised against production data safely:
+`dryRun` and `verify` never write anything, and `apply` is
+idempotent/resumable and never overwrites data it doesn't recognize.
+
+## Attendance index
+
+`teams/{teamId}/attendanceIndex/{memberId}` stores a `statuses` map of
+`{ sessionId: status }` for every **explicit** attendance record of that
+player. The Flutter app reads player history, statistics, charts, and CSV
+exports from this one document per player instead of opening one listener
+per session. Clients can only read it; only the Admin SDK writes it.
+
+- `attendanceIndexSync` (`retry: true`) sets or removes one session key per
+  attendance write, inside a transaction. It is idempotent and never writes
+  back to `sessions/*`, so it cannot loop.
+- `attendanceIndexSessionCleanup` (`retry: true`) removes the session key
+  from every affected player when a session document is deleted.
+- `attendanceIndexRebuild` rebuilds the index from `sessions/*/attendance/*`,
+  one page of teams per request. It uses the same `MIGRATION_TOKEN` secret
+  and auth headers as `multiTeamMigration`. Writes use preconditions so a
+  concurrent trigger update is skipped, not clobbered
+  (`membersSkippedConcurrentUpdate`).
+
+The valid status values live in `ATTENDANCE_STATUS_VALUES`
+(`src/attendanceIndex.ts`) and **must match** `AttendanceStatus.firestoreValue`
+in `lib/src/models/attendance.dart`.
+
+Rebuild request (POST, JSON body). Repeat with `cursor = nextCursor` until
+`done: true`:
+
+```powershell
+$token = "<your MIGRATION_TOKEN value>"
+$url   = "https://europe-west1-<project-id>.cloudfunctions.net/attendanceIndexRebuild"
+$headers = @{ Authorization = "Bearer $token" }
+
+# Preview (no writes)
+Invoke-RestMethod -Method Post -Uri $url -Headers $headers -ContentType "application/json" `
+  -Body (@{ mode = "dryRun"; pageSize = 100 } | ConvertTo-Json)
+
+# Apply one page; pass the previous response's nextCursor as cursor
+Invoke-RestMethod -Method Post -Uri $url -Headers $headers -ContentType "application/json" `
+  -Body (@{ mode = "apply"; pageSize = 100; cursor = "<nextCursor>" } | ConvertTo-Json)
+```
+
+The response contains `mode`, `pageSize`, `startCursor`, `nextCursor`,
+`done`, `durationMs`, and `counts` (`teamsProcessed`, `sessionsRead`,
+`membersWritten`, `membersPruned`, `membersSkippedConcurrentUpdate`, …).
 
 ## What gets migrated
 
@@ -111,7 +166,9 @@ npm test
 ```
 
 When the variable is set you will see `migration.emulator.test.ts`,
-`migrationResume.emulator.test.ts` and `compatTrigger.emulator.test.ts` run
+`migrationResume.emulator.test.ts`, `compatTrigger.emulator.test.ts`,
+`attendanceIndexTrigger.emulator.test.ts` and
+`attendanceIndexRebuild.emulator.test.ts` run
 (not skipped) in the Jest output — that is your confirmation the integration
 tests really executed. They use the Admin SDK directly against the emulator
 (no `firestore.rules` involved, since the Admin SDK bypasses rules) and
@@ -127,11 +184,14 @@ non-resurrection/malformed-conflict/duplicate-delivery paths.
 firebase deploy --only functions
 ```
 
-This deploys both `multiTeamMigration` (HTTPS, `timeoutSeconds: 540`,
-`memory: 512MiB`) and `legacyUserCompatSync` (Firestore
-`onDocumentWritten` trigger with `retry: true`), both in `europe-west1`
+This deploys every function exported from `src/index.ts`:
+`multiTeamMigration` and `attendanceIndexRebuild` (HTTPS,
+`timeoutSeconds: 540`, `memory: 512MiB`), and `legacyUserCompatSync`,
+`attendanceIndexSync`, and `attendanceIndexSessionCleanup` (Firestore
+`onDocumentWritten` triggers with `retry: true`), all in `europe-west1`
 (the single-region function location closest to the project's `eur3`
-Firestore multi-region).
+Firestore multi-region). The first deploy of a trigger with a retry policy
+may require `firebase deploy --only functions --force`.
 
 ## 4. Running the migration
 
@@ -562,6 +622,10 @@ functions/
     compatTrigger.ts          onDocumentWritten(users/{userId}) wiring + testable handler
     auth.ts                   Constant-time token comparison
     httpMigration.ts           The protected HTTPS v2 endpoint (dryRun/apply/verify/status)
+    attendanceIndex.ts          Pure helpers + status values for teams/*/attendanceIndex/*
+    attendanceIndexTrigger.ts   attendanceIndexSync + attendanceIndexSessionCleanup triggers
+    attendanceIndexRebuildRunner.ts  Paginated index rebuild logic (testable)
+    attendanceIndexRebuild.ts   The protected HTTPS rebuild endpoint
     index.ts                    Deployable exports
   test/                          Jest unit + *.emulator.test.ts integration tests
 ```
